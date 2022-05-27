@@ -1,0 +1,19 @@
+[package]
+name = "mail-send"
+description = "E-mail delivery library with SMTP and Mailchimp support."
+version = "0.1.0"
+edition = "2018"
+authors = [ "Stalwart Labs <hello@stalw.art>"]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/stalwartlabs/mail-send"
+homepage = "https://github.com/stalwartlabs/mail-send"
+keywords = ["email", "mime", "mail", "e-mail", "smtp", "mailchimp"]
+categories = ["email"]
+readme = "README.md"
+
+[dependencies]
+mail-builder = "0.2.0"
+base64 = "0.13"
+md5 = "0.7.0"
+
+[dev-dependencies]
