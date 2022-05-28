@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, convert::TryFrom};
 
 pub struct Credentials<'x> {
     username: Cow<'x, str>,
@@ -10,17 +10,41 @@ pub enum Error {
     InvalidChallenge,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Mechanism {
     /// Plain
-    Plain,
+    Plain = 0,
+
     /// Login
-    Login,
+    Login = 1,
+
     /// Digest MD5
-    DigestMD5,
+    #[cfg(feature = "digest-md5")]
+    DigestMD5 = 2,
+
     /// Challenge-Response Authentication Mechanism (CRAM)
-    CramMD5,
+    #[cfg(feature = "cram-md5")]
+    CramMD5 = 3,
+
     /// SASL XOAUTH2
-    XOauth2,
+    XOauth2 = 4,
+}
+
+impl TryFrom<&str> for Mechanism {
+    type Error = ();
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "PLAIN" => Ok(Mechanism::Plain),
+            "LOGIN" => Ok(Mechanism::Login),
+            #[cfg(feature = "digest-md5")]
+            "DIGEST-MD5" => Ok(Mechanism::DigestMD5),
+            #[cfg(feature = "cram-md5")]
+            "CRAM-MD5" => Ok(Mechanism::CramMD5),
+            "XOAUTH2" => Ok(Mechanism::XOauth2),
+            _ => Err(()),
+        }
+    }
 }
 
 impl<'x> Credentials<'x> {
@@ -35,13 +59,15 @@ impl<'x> Credentials<'x> {
     }
 
     pub fn encode(&self, mechanism: Mechanism, challenge: &str) -> super::Result<String> {
-        Ok(match mechanism {
-            Mechanism::Plain => {
-                base64::encode(format!("\u{0}{}\u{0}{}", self.username, self.secret).as_bytes())
-            }
-            Mechanism::Login => {
-                let challenge = base64::decode(challenge)?;
-                base64::encode(
+        Ok(base64::encode(
+            match mechanism {
+                Mechanism::Plain => {
+                    format!("\u{0}{}\u{0}{}", self.username, self.secret)
+                }
+
+                Mechanism::Login => {
+                    let challenge = base64::decode(challenge)?;
+
                     if b"user name"
                         .eq_ignore_ascii_case(challenge.get(0..9).ok_or(Error::InvalidChallenge)?)
                     {
@@ -53,95 +79,160 @@ impl<'x> Credentials<'x> {
                     } else {
                         return Err(Error::InvalidChallenge.into());
                     }
-                    .as_bytes(),
-                )
-            }
-            Mechanism::DigestMD5 => {
-                let mut buf = Vec::with_capacity(10);
-                let mut key = None;
-                let mut in_quote = false;
-                let mut values = HashMap::new();
-                let challenge = base64::decode(challenge)?;
-                let challenge_len = challenge.len();
+                    .to_string()
+                }
 
-                for (pos, byte) in challenge.into_iter().enumerate() {
-                    let add_key = match byte {
-                        b'=' if !in_quote => {
-                            if key.is_none() && !buf.is_empty() {
-                                key = String::from_utf8_lossy(&buf).into_owned().into();
-                                buf.clear();
-                            } else {
-                                return Err(Error::InvalidChallenge.into());
+                #[cfg(feature = "digest-md5")]
+                Mechanism::DigestMD5 => {
+                    let mut buf = Vec::with_capacity(10);
+                    let mut key = None;
+                    let mut in_quote = false;
+                    let mut values = std::collections::HashMap::new();
+                    let challenge = base64::decode(challenge)?;
+                    let challenge_len = challenge.len();
+
+                    for (pos, byte) in challenge.into_iter().enumerate() {
+                        let add_key = match byte {
+                            b'=' if !in_quote => {
+                                if key.is_none() && !buf.is_empty() {
+                                    key = String::from_utf8_lossy(&buf).into_owned().into();
+                                    buf.clear();
+                                } else {
+                                    return Err(Error::InvalidChallenge.into());
+                                }
+                                false
                             }
-                            false
+                            b',' if !in_quote => true,
+                            b'"' => {
+                                in_quote = !in_quote;
+                                false
+                            }
+                            _ => {
+                                buf.push(byte);
+                                false
+                            }
+                        };
+
+                        if (add_key || pos == challenge_len - 1) && key.is_some() && !buf.is_empty()
+                        {
+                            values.insert(
+                                key.take().unwrap(),
+                                String::from_utf8_lossy(&buf).into_owned(),
+                            );
+                            buf.clear();
                         }
-                        b',' if !in_quote => true,
-                        b'"' => {
-                            in_quote = !in_quote;
-                            false
+                    }
+
+                    let (digest_uri, realm, realm_response) =
+                        if let Some(realm) = values.get("realm") {
+                            (
+                                format!("smtp/{}", realm),
+                                realm.as_str(),
+                                format!(",realm=\"{}\"", realm),
+                            )
+                        } else {
+                            ("smtp/localhost".to_string(), "", "".to_string())
+                        };
+
+                    let credentials = md5::compute(
+                        format!("{}:{}:{}", self.username, realm, self.secret).as_bytes(),
+                    );
+
+                    let a2 = md5::compute(
+                        if values.get("qpop").map_or(false, |v| v == "auth") {
+                            format!("AUTHENTICATE:{}", digest_uri)
+                        } else {
+                            format!(
+                                "AUTHENTICATE:{}:00000000000000000000000000000000",
+                                digest_uri
+                            )
                         }
-                        _ => {
-                            buf.push(byte);
-                            false
-                        }
+                        .as_bytes(),
+                    );
+
+                    #[allow(unused_variables)]
+                    let cnonce = {
+                        use rand::RngCore;
+                        let mut buf = [0u8; 16];
+                        rand::thread_rng().fill_bytes(&mut buf);
+                        base64::encode(&buf)
                     };
 
-                    if (add_key || pos == challenge_len - 1) && key.is_some() && !buf.is_empty() {
-                        values.insert(
-                            key.take().unwrap(),
-                            String::from_utf8_lossy(&buf).into_owned(),
-                        );
-                        buf.clear();
-                    }
+                    #[cfg(test)]
+                    let cnonce = "OA6MHXh6VqTrRk".to_string();
+                    let nonce = values.remove("nonce").unwrap_or_default();
+                    let qop = values.remove("qop").unwrap_or_default();
+                    let charset = values
+                        .remove("charset")
+                        .unwrap_or_else(|| "utf-8".to_string());
+
+                    format!(
+                        concat!(
+                            "charset={},username=\"{}\",realm=\"{}\",nonce=\"{}\",nc=00000001,",
+                            "cnonce=\"{}\",digest-uri=\"{}\",response={:x},qop={}"
+                        ),
+                        charset,
+                        self.username,
+                        realm_response,
+                        nonce,
+                        cnonce,
+                        digest_uri,
+                        md5::compute(
+                            format!(
+                                "{:x}:{}:00000001:{}:{}:{:x}",
+                                credentials, nonce, cnonce, qop, a2
+                            )
+                            .as_bytes()
+                        ),
+                        qop
+                    )
                 }
 
-                println!("{:?}", values);
+                #[cfg(feature = "cram-md5")]
+                Mechanism::CramMD5 => {
+                    let mut secret_opad: Vec<u8> = vec![0x5c; 64];
+                    let mut secret_ipad: Vec<u8> = vec![0x36; 64];
 
-                todo!()
-            }
-            Mechanism::CramMD5 => {
-                let mut secret_opad: Vec<u8> = vec![0x5c; 64];
-                let mut secret_ipad: Vec<u8> = vec![0x36; 64];
+                    if self.secret.len() < 64 {
+                        for (pos, byte) in self.secret.as_bytes().iter().enumerate() {
+                            secret_opad[pos] = *byte ^ 0x5c;
+                            secret_ipad[pos] = *byte ^ 0x36;
+                        }
+                    } else {
+                        for (pos, byte) in md5::compute(self.secret.as_bytes()).iter().enumerate() {
+                            secret_opad[pos] = *byte ^ 0x5c;
+                            secret_ipad[pos] = *byte ^ 0x36;
+                        }
+                    }
 
-                if self.secret.len() < 64 {
-                    for (pos, byte) in self.secret.as_bytes().iter().enumerate() {
-                        secret_opad[pos] = *byte ^ 0x5c;
-                        secret_ipad[pos] = *byte ^ 0x36;
-                    }
-                } else {
-                    for (pos, byte) in md5::compute(self.secret.as_bytes()).iter().enumerate() {
-                        secret_opad[pos] = *byte ^ 0x5c;
-                        secret_ipad[pos] = *byte ^ 0x36;
-                    }
+                    secret_ipad.extend_from_slice(&base64::decode(challenge)?);
+                    secret_opad.extend_from_slice(&md5::compute(&secret_ipad).0);
+
+                    format!("{} {:x}", self.username, md5::compute(&secret_opad))
                 }
 
-                secret_ipad.extend_from_slice(&base64::decode(challenge)?);
-                secret_opad.extend_from_slice(&md5::compute(&secret_ipad).0);
-
-                base64::encode(
-                    format!("{} {:x}", self.username, md5::compute(&secret_opad)).as_bytes(),
-                )
-            }
-            Mechanism::XOauth2 => base64::encode(
-                format!(
+                Mechanism::XOauth2 => format!(
                     "user={}\x01auth=Bearer {}\x01\x01",
                     self.username, self.secret
-                )
-                .as_bytes(),
-            ),
-        })
+                ),
+            }
+            .as_bytes(),
+        ))
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::convert::TryInto;
+
     use crate::smtp::auth::{Credentials, Mechanism};
 
     #[test]
     fn auth_encode() {
         // Digest-MD5
+        #[cfg(feature = "digest-md5")]
         assert_eq!(
-            Credentials::new("tim", "tanstaaftanstaaf")
+            Credentials::new("chris", "secret")
                 .encode(
                     Mechanism::DigestMD5,
                     concat!(
@@ -151,10 +242,17 @@ mod test {
                     ),
                 )
                 .unwrap(),
-            "d"
+            concat!(
+                "Y2hhcnNldD11dGYtOCx1c2VybmFtZT0iY2hyaXMiLHJlYWxtPSIscmVhbG0",
+                "9ImVsd29vZC5pbm5vc29mdC5jb20iIixub25jZT0iT0E2TUc5dEVRR20yaG",
+                "giLG5jPTAwMDAwMDAxLGNub25jZT0iT0E2TUhYaDZWcVRyUmsiLGRpZ2Vzd",
+                "C11cmk9InNtdHAvZWx3b29kLmlubm9zb2Z0LmNvbSIscmVzcG9uc2U9NDQ2",
+                "NjIxODg3MzlmYzcxOGNlYmYyZjA4MTk4MWI4ZDIscW9wPWF1dGg=",
+            )
         );
 
         // Challenge-Response Authentication Mechanism (CRAM)
+        #[cfg(feature = "cram-md5")]
         assert_eq!(
             Credentials::new("tim", "tanstaaftanstaaf")
                 .encode(
@@ -198,7 +296,29 @@ mod test {
             Credentials::new("tim", "tanstaaftanstaaf")
                 .encode(Mechanism::Plain, "",)
                 .unwrap(),
-            "dGVzdAB0ZXN0ADEyMzQ="
+            "AHRpbQB0YW5zdGFhZnRhbnN0YWFm"
+        );
+    }
+
+    #[test]
+    fn sort_mechanisms() {
+        let mut mechs: Vec<Mechanism> = vec![
+            "CRAM-MD5".try_into().unwrap(),
+            "XOAUTH2".try_into().unwrap(),
+            "PLAIN".try_into().unwrap(),
+            "DIGEST-MD5".try_into().unwrap(),
+            "LOGIN".try_into().unwrap(),
+        ];
+        mechs.sort_unstable();
+        assert_eq!(
+            mechs,
+            vec![
+                Mechanism::Plain,
+                Mechanism::Login,
+                Mechanism::DigestMD5,
+                Mechanism::CramMD5,
+                Mechanism::XOauth2,
+            ]
         );
     }
 }

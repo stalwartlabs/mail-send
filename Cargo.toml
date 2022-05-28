@@ -7,13 +7,22 @@ authors = [ "Stalwart Labs <hello@stalw.art>"]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/stalwartlabs/mail-send"
 homepage = "https://github.com/stalwartlabs/mail-send"
-keywords = ["email", "mime", "mail", "e-mail", "smtp", "mailchimp"]
+keywords = ["smtp", "mailchimp", "email", "mime", "mail", "e-mail"]
 categories = ["email"]
 readme = "README.md"
 
 [dependencies]
 mail-builder = "0.2.0"
 base64 = "0.13"
-md5 = "0.7.0"
+rand = {version = "0.8.5", optional = true}
+md5 = {version = "0.7.0", optional = true}
+rsa = {version ="0.5", optional = true}
+sha2 = {version = "0.9", optional = true}
 
 [dev-dependencies]
+
+[features]
+default = ["digest-md5", "cram-md5", "dkim"]
+digest-md5 = ["md5", "rand"]
+cram-md5 = ["md5"]
+dkim = ["rsa", "sha2"]

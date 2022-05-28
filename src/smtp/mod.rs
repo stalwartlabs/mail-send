@@ -1,4 +1,7 @@
 pub mod auth;
+pub mod capability;
+pub mod client;
+pub mod dkim;
 pub mod reply;
 
 #[derive(Debug)]
