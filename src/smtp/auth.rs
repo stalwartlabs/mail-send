@@ -1,8 +1,26 @@
-use std::{borrow::Cow, convert::TryFrom};
+use std::{borrow::Cow, convert::TryFrom, fmt::Display};
 
 pub struct Credentials<'x> {
     username: Cow<'x, str>,
     secret: Cow<'x, str>,
+}
+
+impl<'x> From<(&'x str, &'x str)> for Credentials<'x> {
+    fn from(credentials: (&'x str, &'x str)) -> Self {
+        Credentials {
+            username: credentials.0.into(),
+            secret: credentials.1.into(),
+        }
+    }
+}
+
+impl<'x> From<(String, String)> for Credentials<'x> {
+    fn from(credentials: (String, String)) -> Self {
+        Credentials {
+            username: credentials.0.into(),
+            secret: credentials.1.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -10,7 +28,7 @@ pub enum Error {
     InvalidChallenge,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Mechanism {
     /// Plain
     Plain = 0,
@@ -47,6 +65,20 @@ impl TryFrom<&str> for Mechanism {
     }
 }
 
+impl Display for Mechanism {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mechanism::Plain => write!(f, "PLAIN"),
+            Mechanism::Login => write!(f, "LOGIN"),
+            #[cfg(feature = "digest-md5")]
+            Mechanism::DigestMD5 => write!(f, "DIGEST-MD5"),
+            #[cfg(feature = "cram-md5")]
+            Mechanism::CramMD5 => write!(f, "CRAM-MD5"),
+            Mechanism::XOauth2 => write!(f, "XOAUTH2"),
+        }
+    }
+}
+
 impl<'x> Credentials<'x> {
     pub fn new(
         username: impl Into<Cow<'x, str>>,
@@ -70,6 +102,10 @@ impl<'x> Credentials<'x> {
 
                     if b"user name"
                         .eq_ignore_ascii_case(challenge.get(0..9).ok_or(Error::InvalidChallenge)?)
+                        || b"username".eq_ignore_ascii_case(
+                            // Because Google makes its own standards
+                            challenge.get(0..8).ok_or(Error::InvalidChallenge)?,
+                        )
                     {
                         &self.username
                     } else if b"password"

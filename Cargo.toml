@@ -1,13 +1,13 @@
 [package]
 name = "mail-send"
-description = "E-mail delivery library with SMTP and Mailchimp support."
+description = "E-mail delivery library with SMTP, DKIM and Mailchimp support."
 version = "0.1.0"
 edition = "2018"
 authors = [ "Stalwart Labs <hello@stalw.art>"]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/stalwartlabs/mail-send"
 homepage = "https://github.com/stalwartlabs/mail-send"
-keywords = ["smtp", "mailchimp", "email", "mime", "mail", "e-mail"]
+keywords = ["smtp", "dkim", "mailchimp", "email", "mime", "mail", "e-mail"]
 categories = ["email"]
 readme = "README.md"
 
@@ -16,13 +16,20 @@ mail-builder = "0.2.0"
 base64 = "0.13"
 rand = {version = "0.8.5", optional = true}
 md5 = {version = "0.7.0", optional = true}
-rsa = {version ="0.5", optional = true}
+rsa = {version = "0.5", optional = true}
 sha2 = {version = "0.9", optional = true}
+tokio = { version = "1.16", features = ["net", "io-util", "time"], optional = true }
+rustls = { version = "0.20", features = ["dangerous_configuration"], optional = true }
+tokio-rustls = { version = "0.23.4", optional = true }
+webpki-roots = { version = "0.22.3", optional = true }
+gethostname = { version = "0.2.2", optional = true }
 
 [dev-dependencies]
+tokio = { version = "1.16", features = ["net", "io-util", "time", "rt", "macros"] }
 
 [features]
-default = ["digest-md5", "cram-md5", "dkim"]
+default = ["smtp", "digest-md5", "cram-md5", "dkim"]
+smtp = ["tokio", "gethostname", "tokio-rustls", "webpki-roots", "rustls"]
 digest-md5 = ["md5", "rand"]
 cram-md5 = ["md5"]
 dkim = ["rsa", "sha2"]

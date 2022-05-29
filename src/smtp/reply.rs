@@ -1,6 +1,6 @@
 const MAX_MESSAGE_LENGTH: usize = 512;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     PositiveCompletion = 2,
     PositiveIntermediate = 3,
@@ -9,7 +9,7 @@ pub enum Severity {
     Invalid = 0,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {
     Syntax = 0,
     Information = 1,
@@ -60,10 +60,30 @@ impl Reply {
     pub fn details(&self) -> u16 {
         self.code % 10
     }
+
+    pub fn is_positive_completion(&self) -> bool {
+        self.severity() == Severity::PositiveCompletion
+    }
+
+    pub fn assert_severity(self, severity: Severity) -> super::Result<()> {
+        if self.severity() != severity {
+            Err(super::Error::UnexpectedReply(self))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn assert_code(self, code: u16) -> super::Result<()> {
+        if self.code() != code {
+            Err(super::Error::UnexpectedReply(self))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ReplyParseError {
+pub enum Error {
     InvalidReplyCode,
     InvalidSeparator,
     IncompleteReply,
@@ -117,7 +137,7 @@ impl ReplyParser {
         self.is_last = false;
     }
 
-    pub fn parse(&mut self, bytes: &[u8]) -> Result<Reply, ReplyParseError> {
+    pub fn parse(&mut self, bytes: &[u8]) -> Result<Reply, Error> {
         for byte in bytes {
             match self.state {
                 ReplyParserState::FirstDigit => {
@@ -126,7 +146,7 @@ impl ReplyParser {
                         self.state = ReplyParserState::SecondDigit;
                     } else {
                         self.reset();
-                        return Err(ReplyParseError::InvalidReplyCode);
+                        return Err(Error::InvalidReplyCode);
                     }
                 }
                 ReplyParserState::SecondDigit => {
@@ -135,7 +155,7 @@ impl ReplyParser {
                         self.state = ReplyParserState::ThirdDigit;
                     } else {
                         self.reset();
-                        return Err(ReplyParseError::InvalidReplyCode);
+                        return Err(Error::InvalidReplyCode);
                     }
                 }
                 ReplyParserState::ThirdDigit => {
@@ -144,7 +164,7 @@ impl ReplyParser {
                         self.state = ReplyParserState::Separator;
                     } else {
                         self.reset();
-                        return Err(ReplyParseError::InvalidReplyCode);
+                        return Err(Error::InvalidReplyCode);
                     }
                 }
                 ReplyParserState::Separator => {
@@ -155,7 +175,7 @@ impl ReplyParser {
                         b'-' => (),
                         _ => {
                             self.reset();
-                            return Err(ReplyParseError::InvalidSeparator);
+                            return Err(Error::InvalidSeparator);
                         }
                     }
 
@@ -163,7 +183,7 @@ impl ReplyParser {
                         self.code = self.current_code;
                     } else if self.code != self.current_code {
                         self.reset();
-                        return Err(ReplyParseError::CodeMismatch);
+                        return Err(Error::CodeMismatch);
                     }
                     self.current_code = 0;
                     self.state = ReplyParserState::Description;
@@ -199,20 +219,20 @@ impl ReplyParser {
                             self.message_len += 1;
                         } else {
                             self.reset();
-                            return Err(ReplyParseError::MessageTooLong);
+                            return Err(Error::MessageTooLong);
                         }
                     }
                 },
             }
         }
 
-        Err(ReplyParseError::NeedsMoreData)
+        Err(Error::NeedsMoreData)
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::smtp::reply::{Category, ReplyParseError, Severity, MAX_MESSAGE_LENGTH};
+    use crate::smtp::reply::{Category, Error, Severity, MAX_MESSAGE_LENGTH};
 
     use super::ReplyParser;
 
@@ -250,7 +270,7 @@ mod test {
         // Parse chunked response
         assert_eq!(
             parser.parse(b"555-These pretzels\r\n"),
-            Err(ReplyParseError::NeedsMoreData)
+            Err(Error::NeedsMoreData)
         );
         let result = parser.parse(b"555 are making me thirsty\r\n").unwrap();
         assert_eq!(result.code(), 555);
@@ -265,28 +285,25 @@ mod test {
         // Parse invalid response (code mismatch)
         assert_eq!(
             parser.parse(b"421-These pretzels\r\n250 are making me thirsty\r\n"),
-            Err(ReplyParseError::CodeMismatch)
+            Err(Error::CodeMismatch)
         );
 
         // Parse invalid response (alphabetical characters in code)
         assert_eq!(
             parser.parse(b"1zz-These pretzels are making me thirsty\r\n"),
-            Err(ReplyParseError::InvalidReplyCode)
+            Err(Error::InvalidReplyCode)
         );
 
         // Parse invalid response (alphabetical characters in separator)
         assert_eq!(
             parser.parse(b"123These pretzels are making me thirsty\r\n"),
-            Err(ReplyParseError::InvalidSeparator)
+            Err(Error::InvalidSeparator)
         );
 
         // Parse invalid response (message too long)
         let mut long_response = Vec::new();
         (0..MAX_MESSAGE_LENGTH + 1).for_each(|_| long_response.extend_from_slice(b"123-a\r\n"));
         long_response.extend_from_slice(b"123 a\r\n");
-        assert_eq!(
-            parser.parse(&long_response),
-            Err(ReplyParseError::MessageTooLong)
-        );
+        assert_eq!(parser.parse(&long_response), Err(Error::MessageTooLong));
     }
 }

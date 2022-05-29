@@ -1,3 +1,4 @@
+use super::reply::Severity;
 use super::{auth::Mechanism, reply::Reply};
 use std::convert::TryFrom;
 use std::str::FromStr;
@@ -26,9 +27,13 @@ pub struct Capabilties {
 }
 
 impl TryFrom<Reply> for Capabilties {
-    type Error = ();
+    type Error = super::Error;
 
     fn try_from(value: Reply) -> Result<Self, Self::Error> {
+        if value.severity() != Severity::PositiveCompletion {
+            return Err(super::Error::UnexpectedReply(value));
+        }
+
         let message = value.message();
         let mut hostname = String::with_capacity(0);
         let mut capabilities = Vec::with_capacity(message.len());
@@ -72,7 +77,7 @@ impl TryFrom<Reply> for Capabilties {
                 capabilities,
             })
         } else {
-            Err(())
+            Err(super::Error::UnexpectedReply(value))
         }
     }
 }
