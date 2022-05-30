@@ -53,7 +53,7 @@ Send a message via an SMTP server that requires authentication:
         .unwrap();
 ```
 
-Sign a message with DKIM and send it via an internal SMTP relay:
+Sign a message with DKIM and send it via an SMTP relay server:
 
 ```rust
     // Build a simple text message with a single attachment
