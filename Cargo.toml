@@ -7,7 +7,7 @@ authors = [ "Stalwart Labs <hello@stalw.art>"]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/stalwartlabs/mail-send"
 homepage = "https://github.com/stalwartlabs/mail-send"
-keywords = ["smtp", "dkim", "mailchimp", "email", "mime", "mail", "e-mail"]
+keywords = ["smtp", "dkim", "email", "mime", "mail"]
 categories = ["email"]
 readme = "README.md"
 
