@@ -12,7 +12,7 @@ _mail-send_ is a Rust library to build, sign and send e-mail messages via SMTP o
 - DomainKeys Identified Mail (**DKIM**) Signatures (_RFC 6376_).
 - **SMTP** support.
   - Secure delivery over **TLS**.
-  - Authentication with automatic mechamism selection.
+  - Authentication with automatic mechanism selection.
   - Multiple authentication mechanisms:
     - XOAUTH2
     - CRAM-MD5

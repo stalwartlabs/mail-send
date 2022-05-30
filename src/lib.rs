@@ -23,7 +23,7 @@
 //! - DomainKeys Identified Mail (**DKIM**) Signatures (_RFC 6376_).
 //! - **SMTP** support.
 //!   - Secure delivery over **TLS**.
-//!   - Authentication with automatic mechamism selection.
+//!   - Authentication with automatic mechanism selection.
 //!   - Multiple authentication mechanisms:
 //!     - XOAUTH2
 //!     - CRAM-MD5
