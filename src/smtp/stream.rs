@@ -1,6 +1,18 @@
+/*
+ * Copyright Stalwart Labs Ltd. See the COPYING
+ * file at the top-level directory of this distribution.
+ *
+ * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+ * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+ * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
+ * option. This file may not be copied, modified, or distributed
+ * except according to those terms.
+ */
+
 use tokio::{io::AsyncWriteExt, net::TcpStream};
 
 #[allow(clippy::large_enum_variant)]
+#[doc(hidden)]
 pub enum SmtpStream {
     Basic(TcpStream),
     Tls(tokio_rustls::client::TlsStream<TcpStream>),
@@ -10,7 +22,7 @@ pub enum SmtpStream {
 }
 
 impl SmtpStream {
-    pub async fn write_all(&mut self, bytes: &[u8]) -> tokio::io::Result<()> {
+    pub(crate) async fn write_all(&mut self, bytes: &[u8]) -> tokio::io::Result<()> {
         match self {
             SmtpStream::Basic(stream) => stream.write_all(bytes).await,
             SmtpStream::Tls(stream) => stream.write_all(bytes).await,
@@ -23,7 +35,7 @@ impl SmtpStream {
         }
     }
 
-    pub async fn write(&mut self, bytes: &[u8]) -> tokio::io::Result<usize> {
+    pub(crate) async fn write(&mut self, bytes: &[u8]) -> tokio::io::Result<usize> {
         match self {
             SmtpStream::Basic(stream) => stream.write(bytes).await,
             SmtpStream::Tls(stream) => stream.write(bytes).await,
@@ -36,15 +48,7 @@ impl SmtpStream {
         }
     }
 
-    pub async fn flush(&mut self) -> tokio::io::Result<()> {
-        match self {
-            SmtpStream::Basic(stream) => stream.flush().await,
-            SmtpStream::Tls(stream) => stream.flush().await,
-            _ => Ok(()),
-        }
-    }
-
-    pub async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
+    pub(crate) async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
         // Transparency procedure
         #[derive(Debug)]
         enum State {

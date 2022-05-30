@@ -1,3 +1,14 @@
+/*
+ * Copyright Stalwart Labs Ltd. See the COPYING
+ * file at the top-level directory of this distribution.
+ *
+ * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+ * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+ * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
+ * option. This file may not be copied, modified, or distributed
+ * except according to those terms.
+ */
+
 use std::{
     borrow::Cow,
     fmt::{Display, Formatter},
@@ -51,9 +62,11 @@ enum Char {
 }
 
 impl<'x> DKIM<'x> {
-    pub fn from_pkcs1_pem_file(path: &Path) -> super::Result<Self> {
+    /// Creates a new DKIM signer from a PKCS1 PEM file.
+    pub fn from_pkcs1_pem_file(path: &str) -> crate::Result<Self> {
         Ok(DKIM {
-            private_key: RsaPrivateKey::read_pkcs1_pem_file(path).map_err(Error::PKCS)?,
+            private_key: RsaPrivateKey::read_pkcs1_pem_file(Path::new(path))
+                .map_err(Error::PKCS)?,
             domain: "".into(),
             selector: "".into(),
             sign_headers: Vec::with_capacity(0),
@@ -61,7 +74,8 @@ impl<'x> DKIM<'x> {
         })
     }
 
-    pub fn from_pkcs1_pem(pem: &str) -> super::Result<Self> {
+    /// Creates a new DKIM signer from a PKCS1 PEM string.
+    pub fn from_pkcs1_pem(pem: &str) -> crate::Result<Self> {
         Ok(DKIM {
             private_key: RsaPrivateKey::from_pkcs1_pem(pem).map_err(Error::PKCS)?,
             domain: "".into(),
@@ -71,9 +85,11 @@ impl<'x> DKIM<'x> {
         })
     }
 
-    pub fn from_pkcs1_der_file(path: &Path) -> super::Result<Self> {
+    /// Creates a new DKIM signer from a PKCS1 binary file.
+    pub fn from_pkcs1_der_file(path: &str) -> crate::Result<Self> {
         Ok(DKIM {
-            private_key: RsaPrivateKey::read_pkcs1_der_file(path).map_err(Error::PKCS)?,
+            private_key: RsaPrivateKey::read_pkcs1_der_file(Path::new(path))
+                .map_err(Error::PKCS)?,
             domain: "".into(),
             selector: "".into(),
             sign_headers: Vec::with_capacity(0),
@@ -81,7 +97,8 @@ impl<'x> DKIM<'x> {
         })
     }
 
-    pub fn from_pkcs1_der(bytes: &[u8]) -> super::Result<Self> {
+    /// Creates a new DKIM signer from a PKCS1 binary slice.
+    pub fn from_pkcs1_der(bytes: &[u8]) -> crate::Result<Self> {
         Ok(DKIM {
             private_key: RsaPrivateKey::from_pkcs1_der(bytes).map_err(Error::PKCS)?,
             domain: "".into(),
@@ -91,6 +108,7 @@ impl<'x> DKIM<'x> {
         })
     }
 
+    /// Sets the headers to sign.
     pub fn headers(mut self, headers: impl IntoIterator<Item = &'x str>) -> Self {
         self.sign_headers = headers
             .into_iter()
@@ -99,22 +117,26 @@ impl<'x> DKIM<'x> {
         self
     }
 
+    /// Sets the domain to use for signing.
     pub fn domain(mut self, domain: impl Into<Cow<'x, str>>) -> Self {
         self.domain = domain.into();
         self
     }
 
+    /// Sets the selector to use for signing.
     pub fn selector(mut self, selector: impl Into<Cow<'x, str>>) -> Self {
         self.selector = selector.into();
         self
     }
 
+    /// Sets the number of seconds from now to use for the signature expiration.
     pub fn expiration(mut self, expiration: u64) -> Self {
         self.expiration = expiration;
         self
     }
 
-    pub fn sign(&self, message: &[u8]) -> super::Result<Signature> {
+    /// Signs a message.
+    pub fn sign(&self, message: &[u8]) -> crate::Result<Signature> {
         let mut body_hasher = Sha256::new();
         let mut header_hasher = Sha256::new();
 
@@ -171,7 +193,7 @@ impl<'x> DKIM<'x> {
     }
 
     #[allow(clippy::while_let_on_iterator)]
-    pub fn canonicalize_relaxed(
+    pub(crate) fn canonicalize_relaxed(
         &self,
         message: &[u8],
         mut header_hasher: impl Write,
@@ -335,6 +357,16 @@ impl<'x> DKIM<'x> {
             body_hasher.flush()?;
         } else {
             body_hasher.write_all(b"\r\n")?;
+        }
+
+        // Add any missing headers
+        for header in &self.sign_headers {
+            if !signed_headers
+                .iter()
+                .any(|sh| sh.eq_ignore_ascii_case(header.as_ref()))
+            {
+                signed_headers.push(header.clone().into_owned());
+            }
         }
 
         Ok(signed_headers)

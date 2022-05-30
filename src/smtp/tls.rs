@@ -1,15 +1,25 @@
+/*
+ * Copyright Stalwart Labs Ltd. See the COPYING
+ * file at the top-level directory of this distribution.
+ *
+ * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+ * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+ * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
+ * option. This file may not be copied, modified, or distributed
+ * except according to those terms.
+ */
+
 use std::{convert::TryFrom, sync::Arc};
 
 use tokio::{net::TcpStream, time};
 
-use super::{client::SmtpClient, reply::Severity, stream::SmtpStream};
+use super::{
+    client::{Connected, Disconnected, SmtpClient},
+    reply::Severity,
+    stream::SmtpStream,
+};
 
-impl<'x> SmtpClient<'x> {
-    pub fn allow_invalid_certs(mut self, allow_invalid_certs: bool) -> Self {
-        self.allow_invalid_certs = allow_invalid_certs;
-        self
-    }
-
+impl<'x, State> SmtpClient<'x, State> {
     fn default_tls_config(&self) -> tokio_rustls::rustls::ClientConfig {
         let config = tokio_rustls::rustls::ClientConfig::builder().with_safe_defaults();
 
@@ -35,15 +45,24 @@ impl<'x> SmtpClient<'x> {
         }
         .with_no_client_auth()
     }
+}
 
-    pub async fn connect_tls(&mut self) -> super::Result<()> {
+impl<'x> SmtpClient<'x, Disconnected> {
+    /// Disables checking for certificate validity (dangerous and should not be used).
+    pub fn allow_invalid_certs(mut self, allow_invalid_certs: bool) -> Self {
+        self.allow_invalid_certs = allow_invalid_certs;
+        self
+    }
+
+    /// Connects to the server over TLS.
+    pub async fn connect_tls(self) -> crate::Result<SmtpClient<'x, Connected>> {
         time::timeout(self.timeout, async {
             // Connect to the server
-            self.stream = SmtpStream::Tls(
+            let stream = SmtpStream::Tls(
                 tokio_rustls::TlsConnector::from(Arc::new(self.default_tls_config()))
                     .connect(
                         tokio_rustls::rustls::ServerName::try_from(self.hostname.as_ref())
-                            .map_err(|_| super::Error::InvalidTLSName)?,
+                            .map_err(|_| crate::Error::InvalidTLSName)?,
                         TcpStream::connect(format!(
                             "{}:{}",
                             self.hostname,
@@ -54,19 +73,38 @@ impl<'x> SmtpClient<'x> {
                     .await?,
             );
 
+            // Build SmtpClient
+            let mut client: SmtpClient<Connected> = SmtpClient {
+                stream,
+                timeout: self.timeout,
+                allow_invalid_certs: self.allow_invalid_certs,
+                credentials: self.credentials,
+                #[cfg(feature = "dkim")]
+                dkim: self.dkim,
+                hostname: self.hostname,
+                port: self.port,
+                _state: std::marker::PhantomData,
+            };
+
             // Read greeting
-            self.read()
+            client
+                .read()
                 .await?
-                .assert_severity(Severity::PositiveCompletion)
+                .assert_severity(Severity::PositiveCompletion)?;
+
+            Ok(client)
         })
         .await
-        .map_err(|_| super::Error::Timeout)?
+        .map_err(|_| crate::Error::Timeout)?
     }
+}
 
-    pub async fn start_tls(&mut self) -> super::Result<()> {
+impl<'x> SmtpClient<'x, Connected> {
+    /// Upgrade the connection to TLS.
+    pub async fn start_tls(&mut self) -> crate::Result<()> {
         if matches!(self.stream, SmtpStream::Basic(_)) {
             // Send STARTTLS command
-            self.send(b"STARTTLS\r\n")
+            self.cmd(b"STARTTLS\r\n")
                 .await?
                 .assert_severity(Severity::PositiveCompletion)?;
 
@@ -75,7 +113,7 @@ impl<'x> SmtpClient<'x> {
                     tokio_rustls::TlsConnector::from(Arc::new(self.default_tls_config()))
                         .connect(
                             tokio_rustls::rustls::ServerName::try_from(self.hostname.as_ref())
-                                .map_err(|_| super::Error::InvalidTLSName)?,
+                                .map_err(|_| crate::Error::InvalidTLSName)?,
                             stream,
                         )
                         .await?,
@@ -90,6 +128,7 @@ impl<'x> SmtpClient<'x> {
     }
 }
 
+#[doc(hidden)]
 struct DummyVerifier;
 
 impl rustls::client::ServerCertVerifier for DummyVerifier {

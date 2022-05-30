@@ -1,3 +1,14 @@
+/*
+ * Copyright Stalwart Labs Ltd. See the COPYING
+ * file at the top-level directory of this distribution.
+ *
+ * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+ * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+ * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
+ * option. This file may not be copied, modified, or distributed
+ * except according to those terms.
+ */
+
 const MAX_MESSAGE_LENGTH: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,14 +38,17 @@ pub struct Reply {
 }
 
 impl Reply {
+    /// Returns the reply's numeric status.
     pub fn code(&self) -> u16 {
         self.code
     }
 
+    /// Returns the message included in the reply.
     pub fn message(&self) -> &[String] {
         &self.message
     }
 
+    /// Returns the status severity (first digit of the status code).
     pub fn severity(&self) -> Severity {
         match self.code / 100 {
             2 => Severity::PositiveCompletion,
@@ -45,6 +59,7 @@ impl Reply {
         }
     }
 
+    /// Returns the status category (second digit of the status code).
     pub fn category(&self) -> Category {
         match self.code / 10 % 10 {
             0 => Category::Syntax,
@@ -57,25 +72,29 @@ impl Reply {
         }
     }
 
+    /// Returns the status details (third digit of the status code).
     pub fn details(&self) -> u16 {
         self.code % 10
     }
 
+    /// Returns `true` if the reply is a positive completion.
     pub fn is_positive_completion(&self) -> bool {
         self.severity() == Severity::PositiveCompletion
     }
 
-    pub fn assert_severity(self, severity: Severity) -> super::Result<()> {
+    /// Returns Ok if the reply has the specified severity.
+    pub fn assert_severity(self, severity: Severity) -> crate::Result<()> {
         if self.severity() != severity {
-            Err(super::Error::UnexpectedReply(self))
+            Err(crate::Error::UnexpectedReply(self))
         } else {
             Ok(())
         }
     }
 
-    pub fn assert_code(self, code: u16) -> super::Result<()> {
+    /// Returns Ok if the reply has the specified status code.
+    pub fn assert_code(self, code: u16) -> crate::Result<()> {
         if self.code() != code {
-            Err(super::Error::UnexpectedReply(self))
+            Err(crate::Error::UnexpectedReply(self))
         } else {
             Ok(())
         }
@@ -92,6 +111,7 @@ pub enum Error {
     NeedsMoreData,
 }
 
+#[doc(hidden)]
 enum ReplyParserState {
     FirstDigit,
     SecondDigit,
@@ -100,6 +120,7 @@ enum ReplyParserState {
     Description,
 }
 
+#[doc(hidden)]
 pub struct ReplyParser {
     code: u16,
     current_code: u16,

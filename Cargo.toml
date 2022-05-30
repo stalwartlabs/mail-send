@@ -1,6 +1,6 @@
 [package]
 name = "mail-send"
-description = "E-mail delivery library with SMTP, DKIM and Mailchimp support."
+description = "E-mail delivery library with DKIM support"
 version = "0.1.0"
 edition = "2018"
 authors = [ "Stalwart Labs <hello@stalw.art>"]
@@ -23,13 +23,17 @@ rustls = { version = "0.20", features = ["dangerous_configuration"], optional = 
 tokio-rustls = { version = "0.23.4", optional = true }
 webpki-roots = { version = "0.22.3", optional = true }
 gethostname = { version = "0.2.2", optional = true }
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls", "multipart"], optional = true}
+serde = { version = "1.0", features = ["derive"], optional = true}
+serde_json = { version = "1.0", optional = true}
 
 [dev-dependencies]
-tokio = { version = "1.16", features = ["net", "io-util", "time", "rt", "macros"] }
+tokio = { version = "1.16", features = ["net", "io-util", "time", "rt-multi-thread", "macros"] }
 
 [features]
-default = ["smtp", "digest-md5", "cram-md5", "dkim"]
+default = [ "digest-md5", "cram-md5", "smtp", "http", "dkim"] 
 smtp = ["tokio", "gethostname", "tokio-rustls", "webpki-roots", "rustls"]
+http = ["reqwest", "serde", "serde_json"]
 digest-md5 = ["md5", "rand"]
 cram-md5 = ["md5"]
 dkim = ["rsa", "sha2"]

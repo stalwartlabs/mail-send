@@ -1,3 +1,14 @@
+/*
+ * Copyright Stalwart Labs Ltd. See the COPYING
+ * file at the top-level directory of this distribution.
+ *
+ * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+ * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+ * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
+ * option. This file may not be copied, modified, or distributed
+ * except according to those terms.
+ */
+
 use super::reply::Severity;
 use super::{auth::Mechanism, reply::Reply};
 use std::convert::TryFrom;
@@ -27,11 +38,11 @@ pub struct Capabilties {
 }
 
 impl TryFrom<Reply> for Capabilties {
-    type Error = super::Error;
+    type Error = crate::Error;
 
     fn try_from(value: Reply) -> Result<Self, Self::Error> {
         if value.severity() != Severity::PositiveCompletion {
-            return Err(super::Error::UnexpectedReply(value));
+            return Err(crate::Error::UnexpectedReply(value));
         }
 
         let message = value.message();
@@ -77,36 +88,43 @@ impl TryFrom<Reply> for Capabilties {
                 capabilities,
             })
         } else {
-            Err(super::Error::UnexpectedReply(value))
+            Err(crate::Error::UnexpectedReply(value))
         }
     }
 }
 
 impl Capabilties {
-    pub fn new(hostname: String, capabilities: Vec<Capability>) -> Self {
+    #[cfg(test)]
+    pub(crate) fn new(hostname: String, capabilities: Vec<Capability>) -> Self {
         Capabilties {
             hostname,
             capabilities,
         }
     }
 
+    /// Returns the hostname of the SMTP server.
     pub fn hostname(&self) -> &str {
         &self.hostname
     }
 
+    /// Returns the capabilities of the SMTP server.
     pub fn capabilities(&self) -> &[Capability] {
         &self.capabilities
     }
 
+    /// Returns `true` if the SMTP server supports the STARTTLS extension.
     pub fn has_capability(&self, capability: &Capability) -> bool {
         self.capabilities.contains(capability)
     }
 
+    /// Returns all supported authentication mechanisms.
     pub fn auth(&self) -> Option<&[Mechanism]> {
         self.capabilities()
             .iter()
             .find_map(|capability| match capability {
-                Capability::Auth(mechanisms) => Some(mechanisms.as_slice()),
+                Capability::Auth(mechanisms) if !mechanisms.is_empty() => {
+                    Some(mechanisms.as_slice())
+                }
                 _ => None,
             })
     }
@@ -171,8 +189,8 @@ mod test {
                 Capabilties::new(
                     "smtp.example.com".to_string(),
                     vec![Capability::Auth(vec![
-                        Mechanism::Plain,
                         Mechanism::DigestMD5,
+                        Mechanism::Plain,
                     ])],
                 ),
             ),
@@ -186,7 +204,7 @@ mod test {
                 Capabilties::new(
                     "smtp.example.com".to_string(),
                     vec![
-                        Capability::Auth(vec![Mechanism::DigestMD5, Mechanism::CramMD5]),
+                        Capability::Auth(vec![Mechanism::CramMD5, Mechanism::DigestMD5]),
                         Capability::EnhancedStatusCodes,
                         Capability::StartTLS,
                     ],

@@ -1,3 +1,14 @@
+/*
+ * Copyright Stalwart Labs Ltd. See the COPYING
+ * file at the top-level directory of this distribution.
+ *
+ * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+ * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+ * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
+ * option. This file may not be copied, modified, or distributed
+ * except according to those terms.
+ */
+
 use std::{borrow::Cow, convert::TryFrom, fmt::Display};
 
 pub struct Credentials<'x> {
@@ -28,24 +39,25 @@ pub enum Error {
     InvalidChallenge,
 }
 
+/// Authentication mechanism
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Mechanism {
     /// Plain
-    Plain = 0,
+    Plain = 5,
 
     /// Login
-    Login = 1,
+    Login = 4,
 
     /// Digest MD5
     #[cfg(feature = "digest-md5")]
-    DigestMD5 = 2,
+    DigestMD5 = 3,
 
     /// Challenge-Response Authentication Mechanism (CRAM)
     #[cfg(feature = "cram-md5")]
-    CramMD5 = 3,
+    CramMD5 = 2,
 
-    /// SASL XOAUTH2
-    XOauth2 = 4,
+    /// SASL XOAUTH2 (used by Google)
+    XOauth2 = 1,
 }
 
 impl TryFrom<&str> for Mechanism {
@@ -80,6 +92,7 @@ impl Display for Mechanism {
 }
 
 impl<'x> Credentials<'x> {
+    /// Creates a new `Credentials` instance.
     pub fn new(
         username: impl Into<Cow<'x, str>>,
         secret: impl Into<Cow<'x, str>>,
@@ -90,7 +103,7 @@ impl<'x> Credentials<'x> {
         }
     }
 
-    pub fn encode(&self, mechanism: Mechanism, challenge: &str) -> super::Result<String> {
+    pub(crate) fn encode(&self, mechanism: Mechanism, challenge: &str) -> crate::Result<String> {
         Ok(base64::encode(
             match mechanism {
                 Mechanism::Plain => {
@@ -349,11 +362,11 @@ mod test {
         assert_eq!(
             mechs,
             vec![
-                Mechanism::Plain,
-                Mechanism::Login,
-                Mechanism::DigestMD5,
-                Mechanism::CramMD5,
                 Mechanism::XOauth2,
+                Mechanism::CramMD5,
+                Mechanism::DigestMD5,
+                Mechanism::Login,
+                Mechanism::Plain,
             ]
         );
     }
