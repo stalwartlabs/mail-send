@@ -1,6 +1,6 @@
 [package]
 name = "mail-send"
-description = "E-mail delivery library with SMTP, and DKIM support"
+description = "E-mail delivery library with SMTP and DKIM support"
 version = "0.1.0"
 edition = "2018"
 authors = [ "Stalwart Labs <hello@stalw.art>"]
