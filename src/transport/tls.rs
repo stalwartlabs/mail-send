@@ -13,13 +13,11 @@ use std::{convert::TryFrom, sync::Arc};
 
 use tokio::{net::TcpStream, time};
 
-use super::{
-    client::{Connected, Disconnected, SmtpClient},
-    reply::Severity,
-    stream::SmtpStream,
-};
+use crate::{smtp::reply::Severity, Connected, Disconnected, Transport};
 
-impl<'x, State> SmtpClient<'x, State> {
+use super::stream::Stream;
+
+impl<'x, State> Transport<'x, State> {
     fn default_tls_config(&self) -> tokio_rustls::rustls::ClientConfig {
         let config = tokio_rustls::rustls::ClientConfig::builder().with_safe_defaults();
 
@@ -47,7 +45,7 @@ impl<'x, State> SmtpClient<'x, State> {
     }
 }
 
-impl<'x> SmtpClient<'x, Disconnected> {
+impl<'x> Transport<'x, Disconnected> {
     /// Disables checking for certificate validity (dangerous and should not be used).
     pub fn allow_invalid_certs(mut self, allow_invalid_certs: bool) -> Self {
         self.allow_invalid_certs = allow_invalid_certs;
@@ -55,10 +53,10 @@ impl<'x> SmtpClient<'x, Disconnected> {
     }
 
     /// Connects to the server over TLS.
-    pub async fn connect_tls(self) -> crate::Result<SmtpClient<'x, Connected>> {
+    pub async fn connect_tls(self) -> crate::Result<Transport<'x, Connected>> {
         time::timeout(self.timeout, async {
             // Connect to the server
-            let stream = SmtpStream::Tls(
+            let stream = Stream::Tls(
                 tokio_rustls::TlsConnector::from(Arc::new(self.default_tls_config()))
                     .connect(
                         tokio_rustls::rustls::ServerName::try_from(self.hostname.as_ref())
@@ -73,8 +71,8 @@ impl<'x> SmtpClient<'x, Disconnected> {
                     .await?,
             );
 
-            // Build SmtpClient
-            let mut client: SmtpClient<Connected> = SmtpClient {
+            // Build Transport
+            let mut client: Transport<Connected> = Transport {
                 stream,
                 timeout: self.timeout,
                 allow_invalid_certs: self.allow_invalid_certs,
@@ -99,17 +97,17 @@ impl<'x> SmtpClient<'x, Disconnected> {
     }
 }
 
-impl<'x> SmtpClient<'x, Connected> {
+impl<'x> Transport<'x, Connected> {
     /// Upgrade the connection to TLS.
     pub async fn start_tls(&mut self) -> crate::Result<()> {
-        if matches!(self.stream, SmtpStream::Basic(_)) {
+        if matches!(self.stream, Stream::Basic(_)) {
             // Send STARTTLS command
             self.cmd(b"STARTTLS\r\n")
                 .await?
                 .assert_severity(Severity::PositiveCompletion)?;
 
-            if let SmtpStream::Basic(stream) = std::mem::take(&mut self.stream) {
-                self.stream = SmtpStream::Tls(
+            if let Stream::Basic(stream) = std::mem::take(&mut self.stream) {
+                self.stream = Stream::Tls(
                     tokio_rustls::TlsConnector::from(Arc::new(self.default_tls_config()))
                         .connect(
                             tokio_rustls::rustls::ServerName::try_from(self.hostname.as_ref())
@@ -124,7 +122,7 @@ impl<'x> SmtpClient<'x, Connected> {
     }
 
     pub fn is_secure(&self) -> bool {
-        matches!(self.stream, SmtpStream::Tls(_))
+        matches!(self.stream, Stream::Tls(_))
     }
 }
 

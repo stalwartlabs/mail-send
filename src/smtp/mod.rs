@@ -11,23 +11,12 @@
 
 pub mod auth;
 pub mod capability;
-pub mod client;
-#[cfg(feature = "dkim")]
-pub mod dkim;
+pub mod message;
 pub mod reply;
-pub mod stream;
-pub mod tls;
 
 impl From<auth::Error> for crate::Error {
     fn from(err: auth::Error) -> Self {
         crate::Error::Auth(err)
-    }
-}
-
-#[cfg(feature = "dkim")]
-impl From<dkim::Error> for crate::Error {
-    fn from(err: dkim::Error) -> Self {
-        crate::Error::DKIM(err)
     }
 }
 

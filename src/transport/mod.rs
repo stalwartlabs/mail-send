@@ -9,5 +9,6 @@
  * except according to those terms.
  */
 
-pub mod mailchimp;
-pub mod mailgun;
+pub mod client;
+pub mod stream;
+pub mod tls;

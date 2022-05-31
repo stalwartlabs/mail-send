@@ -10,7 +10,7 @@
  */
 
 use mail_builder::MessageBuilder;
-use mail_send::smtp::{client::SmtpClient, dkim::DKIM};
+use mail_send::{dkim::DKIM, Transport};
 
 const TEST_KEY: &str = r#"-----BEGIN RSA PRIVATE KEY-----
 MIICXwIBAAKBgQDwIRP/UC3SBsEmGqZ9ZJW3/DkMoGeLnQg1fWn7/zYtIxN2SnFC
@@ -50,7 +50,7 @@ async fn main() {
 
     // Connect to an SMTP relay server over TLS.
     // Signs each message with the configured DKIM signer.
-    SmtpClient::new("smtp.gmail.com")
+    Transport::new("smtp.gmail.com")
         .dkim(dkim)
         .connect_tls()
         .await

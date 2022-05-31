@@ -5,24 +5,19 @@
 [![docs.rs](https://img.shields.io/docsrs/mail-send)](https://docs.rs/mail-send)
 [![crates.io](https://img.shields.io/crates/l/mail-send)](http://www.apache.org/licenses/LICENSE-2.0)
 
-_mail-send_ is a Rust library to build, sign and send e-mail messages via SMTP or third party services such as Mailchimp, Mailgun, etc. It includes the following features:
+_mail-send_ is a Rust library to build, sign and send e-mail messages via SMTP. It includes the following features:
 
 - Generates **e-mail** messages conforming to the Internet Message Format standard (_RFC 5322_).
 - Full **MIME** support (_RFC 2045 - 2049_) with automatic selection of the most optimal encoding for each message body part.
 - DomainKeys Identified Mail (**DKIM**) Signatures (_RFC 6376_).
-- **SMTP** support.
-  - Secure delivery over **TLS**.
-  - Authentication with automatic mechanism selection.
-  - Multiple authentication mechanisms:
-    - XOAUTH2
-    - CRAM-MD5
-    - DIGEST-MD5
-    - LOGIN
-    - PLAIN
-- Third party e-mail delivery:
-  - Mailchimp
-  - Mailgun
-  - Others to follow.
+- Simple Mail Transfer Protocol (**SMTP**; _RFC 5321_) delivery.
+- SMTP Service Extension for Secure SMTP over **TLS** (_RFC 3207_).
+- SMTP Service Extension for Authentication (_RFC 4954_) with automatic mechanism negotiation (from most secure to least secure):
+  - CRAM-MD5 (_RFC 2195_)
+  - DIGEST-MD5 (_RFC 2831_; obsolete but still supported)
+  - XOAUTH2 (Google proprietary)
+  - LOGIN
+  - PLAIN
 - Full async (requires Tokio).
 
 ## Usage Example
@@ -43,7 +38,7 @@ Send a message via an SMTP server that requires authentication:
 
     // Connect to an SMTP relay server over TLS and
     // authenticate using the provided credentials.
-    SmtpClient::new("smtp.gmail.com")
+    Transport::new("smtp.gmail.com")
         .credentials("john", "p4ssw0rd")
         .connect_tls()
         .await
@@ -74,7 +69,7 @@ Sign a message with DKIM and send it via an SMTP relay server:
 
     // Connect to an SMTP relay server over TLS.
     // Signs each message with the configured DKIM signer.
-    SmtpClient::new("smtp.example.com")
+    Transport::new("smtp.example.com")
         .dkim(dkim)
         .connect_tls()
         .await
@@ -84,7 +79,7 @@ Sign a message with DKIM and send it via an SMTP relay server:
         .unwrap();
 ```
 
-Send a message via Mailchimp:
+Send a message via an unsecured SMTP listening on port 2525. Mail-send will automatically upgrade the connection to TLS if the server advertises the STARTTLS extension:
 
 ```rust
     // Build a simple multipart message
@@ -98,14 +93,18 @@ Send a message via Mailchimp:
         .html_body("<h1>Hello, world!</h1>")
         .text_body("Hello world!");
 
-    // Send the message via Mailchimp
-    MailchimpClient::new("YOUR_API_KEY")
+    // Send the message
+    Transport::new("unsecured.example.com")
+        .port(2525)
+        .connect()
+        .await
+        .unwrap()
         .send(message)
         .await
         .unwrap();
 ```
 
-More examples of how to build messages are available in the [`mail-builder`](https://crates.io/crates/mail-buikder) crate.
+More examples of how to build messages are available in the [`mail-builder`](https://crates.io/crates/mail-builder) crate.
 Please note that this library does not support parsing e-mail messages as this functionality is provided separately by the [`mail-parser`](https://crates.io/crates/mail-parser) crate.
 
 ## Testing

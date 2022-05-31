@@ -10,7 +10,7 @@
  */
 
 use mail_builder::MessageBuilder;
-use mail_send::smtp::client::SmtpClient;
+use mail_send::Transport;
 
 #[tokio::main]
 async fn main() {
@@ -25,7 +25,7 @@ async fn main() {
         .binary_attachment("image/png", "kittens.png", [1, 2, 3, 4].as_ref());
 
     // Connect to an SMTP relay server over TLS
-    SmtpClient::new("smtp.gmail.com")
+    Transport::new("smtp.gmail.com")
         .connect_tls()
         .await
         .unwrap()

@@ -10,7 +10,7 @@
  */
 
 use mail_builder::MessageBuilder;
-use mail_send::smtp::client::SmtpClient;
+use mail_send::Transport;
 
 #[tokio::main]
 async fn main() {
@@ -29,7 +29,7 @@ async fn main() {
 
     // Connect to an SMTP relay server over TLS and
     // authenticate using the provided credentials.
-    SmtpClient::new("smtp.gmail.com")
+    Transport::new("smtp.gmail.com")
         .credentials("john", "p4ssw0rd")
         .connect_tls()
         .await

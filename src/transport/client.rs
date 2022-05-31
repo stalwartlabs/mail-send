@@ -13,39 +13,25 @@ use std::{borrow::Cow, convert::TryInto, time::Duration};
 
 use tokio::{io::AsyncReadExt, net::TcpStream, time};
 
-use crate::message::{IntoMessage, Parameters};
-
-use super::{
-    auth::{Credentials, Mechanism},
-    capability::{Capability, Capabilties},
-    reply::{self, Reply, ReplyParser, Severity},
-    stream::SmtpStream,
+#[cfg(feature = "dkim")]
+use crate::dkim::DKIM;
+use crate::{
+    smtp::{
+        auth::{Credentials, Mechanism},
+        capability::{Capability, Capabilties},
+        message::{IntoMessage, Parameters},
+        reply::{self, Reply, ReplyParser, Severity},
+    },
+    Connected, Disconnected, Transport,
 };
 
-#[cfg(feature = "dkim")]
-use super::dkim::DKIM;
+use super::stream::Stream;
 
-pub struct Connected;
-pub struct Disconnected;
-
-/// SMTP client.
-pub struct SmtpClient<'x, State = Disconnected> {
-    pub _state: std::marker::PhantomData<State>,
-    pub stream: SmtpStream,
-    pub timeout: Duration,
-    pub credentials: Option<Credentials<'x>>,
-    #[cfg(feature = "dkim")]
-    pub dkim: Option<DKIM<'x>>,
-    pub allow_invalid_certs: bool,
-    pub hostname: Cow<'x, str>,
-    pub port: u16,
-}
-
-impl<'x> SmtpClient<'x, Disconnected> {
+impl<'x> Transport<'x, Disconnected> {
     /// Creates a new SMTP client instance.
     pub fn new(hostname: impl Into<Cow<'x, str>>) -> Self {
-        SmtpClient {
-            stream: SmtpStream::None,
+        Transport {
+            stream: Stream::None,
             timeout: Duration::from_secs(60 * 60),
             allow_invalid_certs: false,
             credentials: None,
@@ -86,10 +72,10 @@ impl<'x> SmtpClient<'x, Disconnected> {
         self
     }
 
-    pub async fn connect(self) -> crate::Result<SmtpClient<'x, Connected>> {
+    pub async fn connect(self) -> crate::Result<Transport<'x, Connected>> {
         time::timeout(self.timeout, async {
             // Connect to the server
-            let stream = SmtpStream::Basic(
+            let stream = Stream::Basic(
                 TcpStream::connect(format!(
                     "{}:{}",
                     self.hostname,
@@ -98,8 +84,8 @@ impl<'x> SmtpClient<'x, Disconnected> {
                 .await?,
             );
 
-            // Build SmtpClient
-            let mut client: SmtpClient<Connected> = SmtpClient {
+            // Build Transport
+            let mut client: Transport<Connected> = Transport {
                 stream,
                 timeout: self.timeout,
                 allow_invalid_certs: self.allow_invalid_certs,
@@ -124,15 +110,15 @@ impl<'x> SmtpClient<'x, Disconnected> {
     }
 }
 
-impl<'x> SmtpClient<'x, Connected> {
+impl<'x> Transport<'x, Connected> {
     pub(crate) async fn read(&mut self) -> crate::Result<Reply> {
         let mut buf = vec![0u8; 1024];
         let mut parser = ReplyParser::new();
 
         loop {
             let br = match &mut self.stream {
-                SmtpStream::Basic(stream) => stream.read(&mut buf).await?,
-                SmtpStream::Tls(stream) => stream.read(&mut buf).await?,
+                Stream::Basic(stream) => stream.read(&mut buf).await?,
+                Stream::Tls(stream) => stream.read(&mut buf).await?,
                 _ => unreachable!(),
             };
 
@@ -142,7 +128,7 @@ impl<'x> SmtpClient<'x, Connected> {
                 ));
             }
 
-            println!("-> {:?}", String::from_utf8_lossy(&buf[..br]));
+            //println!("-> {:?}", String::from_utf8_lossy(&buf[..br]));
 
             match parser.parse(&buf[..br]) {
                 Ok(reply) => return Ok(reply),
@@ -157,7 +143,7 @@ impl<'x> SmtpClient<'x, Connected> {
     }
 
     pub(crate) async fn cmd(&mut self, bytes: &[u8]) -> crate::Result<Reply> {
-        println!("-> {:?}", String::from_utf8_lossy(bytes));
+        //println!("-> {:?}", String::from_utf8_lossy(bytes));
 
         time::timeout(self.timeout, async {
             self.stream.write_all(bytes).await?;
@@ -336,12 +322,12 @@ impl<'x> SmtpClient<'x, Connected> {
 #[cfg(test)]
 mod test {
 
-    use super::{SmtpClient, SmtpStream};
+    use super::{Stream, Transport};
 
     #[tokio::test]
     async fn smtp_basic() {
         // StartTLS test
-        let mut client = SmtpClient::new("mail.smtp2go.com")
+        let mut client = Transport::new("mail.smtp2go.com")
             .port(2525)
             .connect()
             .await
@@ -352,7 +338,7 @@ mod test {
         client.quit().await.unwrap();
 
         // Say hello to Google over TLS and quit
-        let mut client = SmtpClient::new("smtp.gmail.com")
+        let mut client = Transport::new("smtp.gmail.com")
             .connect_tls()
             .await
             .unwrap();
@@ -374,9 +360,9 @@ mod test {
             ),
             ("A: ...b".to_string(), "A: ...b\r\n.\r\n".to_string()),
         ] {
-            let mut stream = SmtpStream::Debug(Vec::new());
+            let mut stream = Stream::Debug(Vec::new());
             stream.write_message(test.as_bytes()).await.unwrap();
-            if let SmtpStream::Debug(bytes) = stream {
+            if let Stream::Debug(bytes) = stream {
                 assert_eq!(String::from_utf8(bytes).unwrap(), result);
             }
         }

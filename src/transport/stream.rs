@@ -13,7 +13,7 @@ use tokio::{io::AsyncWriteExt, net::TcpStream};
 
 #[allow(clippy::large_enum_variant)]
 #[doc(hidden)]
-pub enum SmtpStream {
+pub enum Stream {
     Basic(TcpStream),
     Tls(tokio_rustls::client::TlsStream<TcpStream>),
     #[cfg(test)]
@@ -21,13 +21,13 @@ pub enum SmtpStream {
     None,
 }
 
-impl SmtpStream {
+impl Stream {
     pub(crate) async fn write_all(&mut self, bytes: &[u8]) -> tokio::io::Result<()> {
         match self {
-            SmtpStream::Basic(stream) => stream.write_all(bytes).await,
-            SmtpStream::Tls(stream) => stream.write_all(bytes).await,
+            Stream::Basic(stream) => stream.write_all(bytes).await,
+            Stream::Tls(stream) => stream.write_all(bytes).await,
             #[cfg(test)]
-            SmtpStream::Debug(stream) => {
+            Stream::Debug(stream) => {
                 stream.extend_from_slice(bytes);
                 Ok(())
             }
@@ -37,10 +37,10 @@ impl SmtpStream {
 
     pub(crate) async fn write(&mut self, bytes: &[u8]) -> tokio::io::Result<usize> {
         match self {
-            SmtpStream::Basic(stream) => stream.write(bytes).await,
-            SmtpStream::Tls(stream) => stream.write(bytes).await,
+            Stream::Basic(stream) => stream.write(bytes).await,
+            Stream::Tls(stream) => stream.write(bytes).await,
             #[cfg(test)]
-            SmtpStream::Debug(stream) => {
+            Stream::Debug(stream) => {
                 stream.extend_from_slice(bytes);
                 Ok(bytes.len())
             }
@@ -82,8 +82,8 @@ impl SmtpStream {
     }
 }
 
-impl Default for SmtpStream {
+impl Default for Stream {
     fn default() -> Self {
-        SmtpStream::None
+        Stream::None
     }
 }
