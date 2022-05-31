@@ -9,7 +9,9 @@
  * except according to those terms.
  */
 
-use std::{borrow::Cow, io::Write, path::Path, time::SystemTime};
+#[cfg(not(test))]
+use std::time::SystemTime;
+use std::{borrow::Cow, io::Write, path::Path};
 
 use rsa::{pkcs1::FromRsaPrivateKey, Hash, PaddingScheme, RsaPrivateKey};
 use sha2::{Digest, Sha256};
@@ -105,7 +107,7 @@ impl<'x> DKIM<'x> {
         }
 
         // Build signature
-        #[allow(unused_variables)]
+        #[cfg(not(test))]
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| d.as_secs())
