@@ -27,6 +27,21 @@ use crate::{
 
 use super::stream::Stream;
 
+impl<'x> Clone for Transport<'x, Disconnected> {
+    fn clone(&self) -> Self {
+        Self {
+            _state: self._state,
+            stream: Stream::None,
+            timeout: self.timeout,
+            credentials: self.credentials.clone(),
+            dkim: self.dkim.clone(),
+            allow_invalid_certs: self.allow_invalid_certs,
+            hostname: self.hostname.clone(),
+            port: self.port,
+        }
+    }
+}
+
 impl<'x> Transport<'x, Disconnected> {
     /// Creates a new SMTP client instance.
     pub fn new(hostname: impl Into<Cow<'x, str>>) -> Self {
@@ -103,6 +118,9 @@ impl<'x> Transport<'x, Disconnected> {
                 .await?
                 .assert_severity(Severity::PositiveCompletion)?;
 
+            // Authenticate and upgrade to TLS if possible
+            client.init().await?;
+
             Ok(client)
         })
         .await
@@ -142,7 +160,8 @@ impl<'x> Transport<'x, Connected> {
         }
     }
 
-    pub(crate) async fn cmd(&mut self, bytes: &[u8]) -> crate::Result<Reply> {
+    /// Sends a command to the SMTP server and waits for a reply.
+    pub async fn cmd(&mut self, bytes: &[u8]) -> crate::Result<Reply> {
         //println!("-> {:?}", String::from_utf8_lossy(bytes));
 
         time::timeout(self.timeout, async {
@@ -171,8 +190,7 @@ impl<'x> Transport<'x, Connected> {
         self.cmd(b"NOOP\r\n").await
     }
 
-    /// Authenticate using the given mechanism.
-    pub async fn auth(&mut self, mechanism: Mechanism) -> crate::Result<()> {
+    pub(crate) async fn auth(&mut self, mechanism: Mechanism) -> crate::Result<()> {
         let mut reply = self
             .cmd(format!("AUTH {}\r\n", mechanism).as_bytes())
             .await?;
@@ -260,10 +278,7 @@ impl<'x> Transport<'x, Connected> {
             .assert_severity(Severity::PositiveCompletion)
     }
 
-    /// Sends a message to the server. This is a convenience function that
-    /// signs the message using the provided DKIM signer, authenticates the user
-    /// using the provided credentials, and finally sends the message.
-    pub async fn send(&mut self, message: impl IntoMessage<'x>) -> crate::Result<()> {
+    pub(crate) async fn init(&mut self) -> crate::Result<()> {
         // Obtain server capabilities
         let mut capabilities = self.ehlo().await?;
 
@@ -300,7 +315,13 @@ impl<'x> Transport<'x, Connected> {
                 return Err(crate::Error::UnsupportedAuthMechanism);
             }
         }
+        Ok(())
+    }
 
+    /// Sends a message to the server. This is a convenience function that
+    /// signs the message using the provided DKIM signer, authenticates the user
+    /// using the provided credentials, and finally sends the message.
+    pub async fn send(&mut self, message: impl IntoMessage<'x>) -> crate::Result<()> {
         // Send mail-from
         let message = message.into_message()?;
         self.mail_from(

@@ -9,7 +9,7 @@
  * except according to those terms.
  */
 
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt::Display};
 
 use rsa::RsaPrivateKey;
 
@@ -26,6 +26,7 @@ pub enum Error {
     PKCS(rsa::pkcs1::Error),
 }
 
+#[derive(Clone)]
 pub struct DKIM<'x> {
     private_key: RsaPrivateKey,
     domain: Cow<'x, str>,
@@ -47,5 +48,17 @@ pub struct Signature<'x> {
 impl From<Error> for crate::Error {
     fn from(err: Error) -> Self {
         crate::Error::DKIM(err)
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::ParseError => write!(f, "Parse error"),
+            Error::MissingParameters => write!(f, "Missing parameters"),
+            Error::NoHeadersFound => write!(f, "No headers found"),
+            Error::RSA(err) => write!(f, "RSA error: {}", err),
+            Error::PKCS(err) => write!(f, "PKCS error: {}", err),
+        }
     }
 }

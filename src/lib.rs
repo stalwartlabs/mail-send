@@ -156,7 +156,7 @@ pub mod smtp;
 #[forbid(unsafe_code)]
 pub mod transport;
 
-use std::{borrow::Cow, time::Duration};
+use std::{borrow::Cow, fmt::Display, time::Duration};
 
 pub use mail_builder;
 use smtp::auth::Credentials;
@@ -203,24 +203,9 @@ pub enum Error {
 
     /// Connection timeout.
     Timeout,
-
-    /// Transport error
-    Transport(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
-
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        Error::Io(err)
-    }
-}
-
-impl From<base64::DecodeError> for Error {
-    fn from(err: base64::DecodeError) -> Self {
-        Error::Base64(err)
-    }
-}
 
 /// SMTP client.
 pub struct Transport<'x, State = Disconnected> {
@@ -237,3 +222,39 @@ pub struct Transport<'x, State = Disconnected> {
 
 pub struct Connected;
 pub struct Disconnected;
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::Io(e) => write!(f, "I/O error: {}", e),
+            Error::Base64(e) => write!(f, "Base64 decode error: {}", e),
+            Error::Auth(e) => write!(f, "SMTP authentication error: {}", e),
+            #[cfg(feature = "dkim")]
+            Error::DKIM(e) => write!(f, "DKIM signing error: {}", e),
+            Error::UnparseableReply(e) => write!(f, "Unparseable SMTP reply: {}", e),
+            Error::UnexpectedReply(e) => e.fmt(f),
+            Error::AuthenticationFailed(e) => e.fmt(f),
+            Error::InvalidTLSName => write!(f, "Invalid TLS name provided"),
+            Error::MissingCredentials => write!(f, "Missing authentication credentials"),
+            Error::MissingMailFrom => write!(f, "Missing message sender"),
+            Error::MissingRcptTo => write!(f, "Missing message recipients"),
+            Error::UnsupportedAuthMechanism => write!(
+                f,
+                "The server does no support any of the available authentication methods"
+            ),
+            Error::Timeout => write!(f, "Connection timeout"),
+        }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::Io(err)
+    }
+}
+
+impl From<base64::DecodeError> for Error {
+    fn from(err: base64::DecodeError) -> Self {
+        Error::Base64(err)
+    }
+}

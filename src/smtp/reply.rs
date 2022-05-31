@@ -9,6 +9,8 @@
  * except according to those terms.
  */
 
+use std::fmt::Display;
+
 const MAX_MESSAGE_LENGTH: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +40,14 @@ pub struct Reply {
 }
 
 impl Reply {
+    /// Create a new reply
+    pub fn new(code: u16, message: String) -> Self {
+        Self {
+            code,
+            message: vec![message],
+        }
+    }
+
     /// Returns the reply's numeric status.
     pub fn code(&self) -> u16 {
         self.code
@@ -248,6 +258,29 @@ impl ReplyParser {
         }
 
         Err(Error::NeedsMoreData)
+    }
+}
+
+impl Display for Reply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.code)?;
+        for line in &self.message {
+            write!(f, " {}", line)?;
+        }
+        Ok(())
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::NeedsMoreData => write!(f, "Needs more data"),
+            Error::InvalidReplyCode => write!(f, "Invalid reply code"),
+            Error::InvalidSeparator => write!(f, "Invalid separator"),
+            Error::CodeMismatch => write!(f, "Code mismatch"),
+            Error::MessageTooLong => write!(f, "Message too long"),
+            Error::IncompleteReply => write!(f, "Incomplete reply"),
+        }
     }
 }
 

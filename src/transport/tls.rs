@@ -90,6 +90,9 @@ impl<'x> Transport<'x, Disconnected> {
                 .await?
                 .assert_severity(Severity::PositiveCompletion)?;
 
+            // Authenticate
+            client.init().await?;
+
             Ok(client)
         })
         .await

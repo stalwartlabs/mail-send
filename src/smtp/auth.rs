@@ -11,9 +11,10 @@
 
 use std::{borrow::Cow, convert::TryFrom, fmt::Display};
 
+#[derive(Clone)]
 pub struct Credentials<'x> {
-    username: Cow<'x, str>,
-    secret: Cow<'x, str>,
+    pub username: Cow<'x, str>,
+    pub secret: Cow<'x, str>,
 }
 
 impl<'x> From<(&'x str, &'x str)> for Credentials<'x> {
@@ -369,5 +370,13 @@ mod test {
                 Mechanism::Plain,
             ]
         );
+    }
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::InvalidChallenge => write!(f, "Invalid challenge received."),
+        }
     }
 }
