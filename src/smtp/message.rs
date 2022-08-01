@@ -9,11 +9,7 @@
  * except according to those terms.
  */
 
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    fmt::Display,
-};
+use std::{borrow::Cow, collections::HashSet, fmt::Display};
 
 use mail_builder::{
     headers::{address, HeaderType},
@@ -35,7 +31,7 @@ pub struct Address<'x> {
 
 #[derive(Debug, Default)]
 pub struct Parameters<'x> {
-    pub params: HashMap<Cow<'x, str>, Option<Cow<'x, str>>>,
+    pub params: Vec<(Cow<'x, str>, Option<Cow<'x, str>>)>,
 }
 
 impl<'x> Message<'x> {
@@ -110,17 +106,15 @@ impl<'x> Address<'x> {
 
 impl<'x> Parameters<'x> {
     pub fn new() -> Self {
-        Self {
-            params: HashMap::new(),
-        }
+        Self { params: Vec::new() }
     }
 
     pub fn param(&mut self, key: impl Into<Cow<'x, str>>, value: impl Into<Cow<'x, str>>) {
-        self.params.insert(key.into(), Some(value.into()));
+        self.params.push((key.into(), Some(value.into())));
     }
 
     pub fn keyword(&mut self, key: impl Into<Cow<'x, str>>) {
-        self.params.insert(key.into(), None);
+        self.params.push((key.into(), None));
     }
 }
 
