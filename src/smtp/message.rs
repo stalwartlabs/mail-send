@@ -151,7 +151,7 @@ impl<'x, 'y> IntoMessage<'x> for MessageBuilder<'y> {
 
         for (key, value) in self.headers.iter() {
             if key.eq_ignore_ascii_case("from") {
-                if let Some(HeaderType::Address(address::Address::Address(addr))) = value.last() {
+                if let HeaderType::Address(address::Address::Address(addr)) = value {
                     let email = addr.email.trim();
                     if !email.is_empty() {
                         mail_from = email.to_string().into();
@@ -161,32 +161,30 @@ impl<'x, 'y> IntoMessage<'x> for MessageBuilder<'y> {
                 || key.eq_ignore_ascii_case("cc")
                 || key.eq_ignore_ascii_case("bcc")
             {
-                for addr in value {
-                    if let HeaderType::Address(addr) = addr {
-                        match addr {
-                            address::Address::Address(addr) => {
-                                let email = addr.email.trim();
-                                if !email.is_empty() {
-                                    rcpt_to.insert(email.to_string());
-                                }
+                if let HeaderType::Address(addr) = value {
+                    match addr {
+                        address::Address::Address(addr) => {
+                            let email = addr.email.trim();
+                            if !email.is_empty() {
+                                rcpt_to.insert(email.to_string());
                             }
-                            address::Address::Group(group) => {
-                                for addr in &group.addresses {
-                                    if let address::Address::Address(addr) = addr {
-                                        let email = addr.email.trim();
-                                        if !email.is_empty() {
-                                            rcpt_to.insert(email.to_string());
-                                        }
+                        }
+                        address::Address::Group(group) => {
+                            for addr in &group.addresses {
+                                if let address::Address::Address(addr) = addr {
+                                    let email = addr.email.trim();
+                                    if !email.is_empty() {
+                                        rcpt_to.insert(email.to_string());
                                     }
                                 }
                             }
-                            address::Address::List(list) => {
-                                for addr in list {
-                                    if let address::Address::Address(addr) = addr {
-                                        let email = addr.email.trim();
-                                        if !email.is_empty() {
-                                            rcpt_to.insert(email.to_string());
-                                        }
+                        }
+                        address::Address::List(list) => {
+                            for addr in list {
+                                if let address::Address::Address(addr) = addr {
+                                    let email = addr.email.trim();
+                                    if !email.is_empty() {
+                                        rcpt_to.insert(email.to_string());
                                     }
                                 }
                             }
