@@ -264,6 +264,26 @@ impl<'x> Transport<'x, Connected> {
         .assert_severity(Severity::PositiveCompletion)
     }
 
+    /// Sends a DATA command to the server including additional headers.
+    /// This command does NOT sign the message.
+    pub async fn data_with_headers(&mut self, headers: &[u8], message: &[u8]) -> crate::Result<()> {
+        self.cmd(b"DATA\r\n")
+            .await?
+            .assert_severity(Severity::PositiveIntermediate)?;
+        time::timeout(self.timeout, async {
+            // Write headers
+            self.stream.write_all(headers).await?;
+
+            // Write message
+            self.stream.write_message(message).await?;
+
+            self.read().await
+        })
+        .await
+        .map_err(|_| crate::Error::Timeout)??
+        .assert_severity(Severity::PositiveCompletion)
+    }
+
     /// Sends a RSET command to the server.
     pub async fn rset(&mut self) -> crate::Result<()> {
         self.cmd(b"RSET\r\n")
