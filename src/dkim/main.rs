@@ -13,7 +13,7 @@
 use std::time::SystemTime;
 use std::{borrow::Cow, io::Write, path::Path};
 
-use rsa::{pkcs1::FromRsaPrivateKey, Hash, PaddingScheme, RsaPrivateKey};
+use rsa::{pkcs1::DecodeRsaPrivateKey, Hash, PaddingScheme, RsaPrivateKey};
 use sha2::{Digest, Sha256};
 
 use super::{Error, Signature, DKIM};
