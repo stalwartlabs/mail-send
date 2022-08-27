@@ -147,8 +147,6 @@ impl<'x> Transport<'x, Connected> {
                 ));
             }
 
-            //println!("+ {:?}", String::from_utf8_lossy(&buf[..br]));
-
             match parser.parse(&buf[..br]) {
                 Ok(reply) => return Ok(reply),
                 Err(err) => match err {
@@ -163,8 +161,6 @@ impl<'x> Transport<'x, Connected> {
 
     /// Sends a command to the SMTP server and waits for a reply.
     pub async fn cmd(&mut self, bytes: &[u8]) -> crate::Result<Reply> {
-        //println!("+ {:?}", String::from_utf8_lossy(bytes));
-
         time::timeout(self.timeout, async {
             self.stream.write_all(bytes).await?;
             self.read().await

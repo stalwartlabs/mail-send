@@ -177,7 +177,6 @@ impl<'x> DKIM<'x> {
             }
         }
 
-        println!("draining: {:?} {}", crlf_seq, body_bytes);
         if body_bytes > 0 {
             let mut add_crlf = true;
 
