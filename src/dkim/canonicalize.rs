@@ -177,7 +177,10 @@ impl<'x> DKIM<'x> {
             }
         }
 
+        println!("draining: {:?} {}", crlf_seq, body_bytes);
         if body_bytes > 0 {
+            let mut add_crlf = true;
+
             for char in crlf_seq.drain(..) {
                 match char {
                     Char::Cr => {
@@ -185,10 +188,15 @@ impl<'x> DKIM<'x> {
                     }
                     Char::Lf => {
                         body_hasher.write_all(b"\n")?;
+                        add_crlf = false;
                         break;
                     }
                     _ => (),
                 }
+            }
+
+            if add_crlf {
+                body_hasher.write_all(b"\r\n")?;
             }
             body_hasher.flush()?;
         } else {
@@ -288,7 +296,10 @@ GMot/L2x0IYyMLAz6oLWh2hm7zwtb0CgOrPo1ke44hFYnfc=
             (
                 concat!("\tx\t: \t\t\tz\r\n\r\nabc",).to_string(),
                 vec!["x"],
-                (concat!("x:z\r\n").to_string(), concat!("abc").to_string()),
+                (
+                    concat!("x:z\r\n").to_string(),
+                    concat!("abc\r\n").to_string(),
+                ),
             ),
         ] {
             let mut headers = Vec::new();

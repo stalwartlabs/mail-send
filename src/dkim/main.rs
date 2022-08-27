@@ -9,9 +9,7 @@
  * except according to those terms.
  */
 
-#[cfg(not(test))]
-use std::time::SystemTime;
-use std::{borrow::Cow, io::Write, path::Path};
+use std::{borrow::Cow, io::Write, path::Path, time::SystemTime};
 
 use rsa::{pkcs1::DecodeRsaPrivateKey, Hash, PaddingScheme, RsaPrivateKey};
 use sha2::{Digest, Sha256};
@@ -94,6 +92,17 @@ impl<'x> DKIM<'x> {
 
     /// Signs a message.
     pub fn sign(&self, message: &[u8]) -> crate::Result<Signature> {
+        self.sign_with_time(
+            message,
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        )
+    }
+
+    /// Signs a message using the provide current time.
+    pub fn sign_with_time(&self, message: &[u8], now: u64) -> crate::Result<Signature> {
         let mut body_hasher = Sha256::new();
         let mut header_hasher = Sha256::new();
 
@@ -105,15 +114,6 @@ impl<'x> DKIM<'x> {
         } else if self.domain.is_empty() || self.selector.is_empty() {
             return Err(Error::MissingParameters.into());
         }
-
-        // Build signature
-        #[cfg(not(test))]
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        #[cfg(test)]
-        let now = 311923920;
 
         let mut signature = Signature {
             d: self.domain.clone(),
@@ -177,7 +177,7 @@ GMot/L2x0IYyMLAz6oLWh2hm7zwtb0CgOrPo1ke44hFYnfc=
             .domain("stalw.art")
             .selector("default");
         let signature = dkim
-            .sign(
+            .sign_with_time(
                 concat!(
                     "From: hello@stalw.art\r\n",
                     "To: dkim@stalw.art\r\n",
@@ -185,6 +185,7 @@ GMot/L2x0IYyMLAz6oLWh2hm7zwtb0CgOrPo1ke44hFYnfc=
                     "Here goes the test\r\n\r\n"
                 )
                 .as_bytes(),
+                311923920,
             )
             .unwrap();
         assert_eq!(
