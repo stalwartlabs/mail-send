@@ -90,6 +90,7 @@ impl<'x> Transport<'x, Disconnected> {
     pub async fn connect(self) -> crate::Result<Transport<'x, Connected>> {
         time::timeout(self.timeout, async {
             // Connect to the server
+            let is_localhost = ["127.0.0.1", "localhost"].contains(&self.hostname.as_ref());
             let stream = Stream::Basic(
                 TcpStream::connect(format!(
                     "{}:{}",
@@ -119,7 +120,7 @@ impl<'x> Transport<'x, Disconnected> {
                 .assert_severity(Severity::PositiveCompletion)?;
 
             // Authenticate and upgrade to TLS if possible
-            client.init().await?;
+            client.init(is_localhost).await?;
 
             Ok(client)
         })
@@ -298,12 +299,13 @@ impl<'x> Transport<'x, Connected> {
             .assert_severity(Severity::PositiveCompletion)
     }
 
-    pub(crate) async fn init(&mut self) -> crate::Result<()> {
+    pub(crate) async fn init(&mut self, is_localhost: bool) -> crate::Result<()> {
         // Obtain server capabilities
         let mut capabilities = self.ehlo().await?;
 
         // Upgrade to TLS if this is an insecure connection
-        if !self.is_secure() && capabilities.has_capability(&Capability::StartTLS) {
+        if !self.is_secure() && capabilities.has_capability(&Capability::StartTLS) && !is_localhost
+        {
             self.start_tls().await?;
             capabilities = self.ehlo().await?;
         }
