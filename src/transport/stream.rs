@@ -35,7 +35,7 @@ impl Stream {
         }
     }
 
-    pub(crate) async fn write(&mut self, bytes: &[u8]) -> tokio::io::Result<usize> {
+    /*pub(crate) async fn write(&mut self, bytes: &[u8]) -> tokio::io::Result<usize> {
         match self {
             Stream::Basic(stream) => stream.write(bytes).await,
             Stream::Tls(stream) => stream.write(bytes).await,
@@ -46,7 +46,7 @@ impl Stream {
             }
             _ => unreachable!(),
         }
-    }
+    }*/
 
     pub(crate) async fn flush(&mut self) -> tokio::io::Result<()> {
         match self {
@@ -72,8 +72,8 @@ impl Stream {
         for (pos, byte) in message.iter().enumerate() {
             if *byte == b'.' && matches!(state, State::CrLf) {
                 if let Some(bytes) = message.get(last_pos..pos) {
-                    self.write(bytes).await?;
-                    self.write(b".").await?;
+                    self.write_all(bytes).await?;
+                    self.write_all(b".").await?;
                     last_pos = pos;
                 }
                 state = State::Init;
@@ -86,9 +86,9 @@ impl Stream {
             }
         }
         if let Some(bytes) = message.get(last_pos..) {
-            self.write(bytes).await?;
+            self.write_all(bytes).await?;
         }
-        self.write("\r\n.\r\n".as_bytes()).await?;
+        self.write_all("\r\n.\r\n".as_bytes()).await?;
         self.flush().await
     }
 }
