@@ -48,6 +48,16 @@ impl Stream {
         }
     }
 
+    pub(crate) async fn flush(&mut self) -> tokio::io::Result<()> {
+        match self {
+            Stream::Basic(stream) => stream.flush().await,
+            Stream::Tls(stream) => stream.flush().await,
+            #[cfg(test)]
+            Stream::Debug(_) => Ok(()),
+            _ => unreachable!(),
+        }
+    }
+
     pub(crate) async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
         // Transparency procedure
         #[derive(Debug)]
@@ -78,7 +88,8 @@ impl Stream {
         if let Some(bytes) = message.get(last_pos..) {
             self.write(bytes).await?;
         }
-        self.write_all("\r\n.\r\n".as_bytes()).await
+        self.write("\r\n.\r\n".as_bytes()).await?;
+        self.flush().await
     }
 }
 
