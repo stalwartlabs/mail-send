@@ -1,6 +1,6 @@
 mail-send 0.2.3
 ================================
-- Fix:  Send gets stuck when the message has a binary attachment (#7)
+- Fix: Send gets stuck when the message has a binary attachment (#7)
 
 mail-send 0.2.2
 ================================
