@@ -11,7 +11,7 @@
 
 use std::{borrow::Cow, io::Write, path::Path, time::SystemTime};
 
-use rsa::{pkcs1::DecodeRsaPrivateKey, Hash, PaddingScheme, RsaPrivateKey};
+use rsa::{pkcs1::DecodeRsaPrivateKey, PaddingScheme, RsaPrivateKey};
 use sha2::{Digest, Sha256};
 
 use super::{Error, Signature, DKIM};
@@ -138,9 +138,7 @@ impl<'x> DKIM<'x> {
             &self
                 .private_key
                 .sign(
-                    PaddingScheme::PKCS1v15Sign {
-                        hash: Hash::SHA2_256.into(),
-                    },
+                    PaddingScheme::new_pkcs1v15_sign::<Sha256>(),
                     &header_hasher.finalize(),
                 )
                 .map_err(Error::RSA)?,
