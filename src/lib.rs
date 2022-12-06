@@ -115,7 +115,7 @@
 //!         .unwrap();
 //! ```
 //!
-//! More examples of how to build messages are available in the [`mail-builder`](https://crates.io/crates/mail-buikder) crate.
+//! More examples of how to build messages are available in the [`mail-builder`](https://crates.io/crates/mail-builder) crate.
 //! Please note that this library does not support parsing e-mail messages as this functionality is provided separately by the [`mail-parser`](https://crates.io/crates/mail-parser) crate.
 //!
 //! ## Testing
