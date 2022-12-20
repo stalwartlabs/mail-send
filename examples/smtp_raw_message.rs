@@ -9,7 +9,8 @@
  * except according to those terms.
  */
 
-use mail_send::{smtp::message::Message, Transport};
+use mail_send::smtp::message::Message;
+use mail_send::SmtpClientBuilder;
 
 #[tokio::main]
 async fn main() {
@@ -22,9 +23,8 @@ async fn main() {
 
     // Connect to an SMTP relay server.
     // The library will upgrade the connection to TLS if the server supports it.
-    Transport::new("mail.smtp2go.com")
-        .port(2525)
-        .connect()
+    SmtpClientBuilder::new()
+        .connect_starttls("mail.smtp2go.com", 2525)
         .await
         .unwrap()
         .send(message)

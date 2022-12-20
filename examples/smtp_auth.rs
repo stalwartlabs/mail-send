@@ -10,7 +10,7 @@
  */
 
 use mail_builder::MessageBuilder;
-use mail_send::Transport;
+use mail_send::SmtpClientBuilder;
 
 #[tokio::main]
 async fn main() {
@@ -27,11 +27,13 @@ async fn main() {
         .html_body("<h1>Hello, world!</h1>")
         .text_body("Hello world!");
 
-    // Connect to an SMTP relay server over TLS and
+    // Connect to the SMTP submissions port, upgrade to TLS and
     // authenticate using the provided credentials.
-    Transport::new("smtp.gmail.com")
-        .credentials("john", "p4ssw0rd")
-        .connect_tls()
+    SmtpClientBuilder::new()
+        .connect_starttls("smtp.gmail.com", 587)
+        .await
+        .unwrap()
+        .authenticate(("john", "p4ssw0rd"))
         .await
         .unwrap()
         .send(message)

@@ -1,6 +1,5 @@
 /*
- * Copyright Stalwart Labs Ltd. See the COPYING
- * file at the top-level directory of this distribution.
+ * Copyright Stalwart Labs Ltd.
  *
  * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
  * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
@@ -9,12 +8,20 @@
  * except according to those terms.
  */
 
-use std::{borrow::Cow, collections::HashSet, fmt::Display};
+use std::{
+    borrow::Cow,
+    fmt::{Debug, Display},
+};
 
+#[cfg(feature = "builder")]
 use mail_builder::{
     headers::{address, HeaderType},
     MessageBuilder,
 };
+use smtp_proto::{EhloResponse, Parameter, EXT_CHUNKING};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+
+use crate::SmtpClient;
 
 #[derive(Debug, Default)]
 pub struct Message<'x> {
@@ -31,7 +38,106 @@ pub struct Address<'x> {
 
 #[derive(Debug, Default)]
 pub struct Parameters<'x> {
-    pub params: Vec<(Cow<'x, str>, Option<Cow<'x, str>>)>,
+    params: Vec<Parameter<Cow<'x, str>>>,
+}
+
+impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
+    /// Sends a message to the server.
+    pub async fn send<'x>(&mut self, message: impl IntoMessage<'x>) -> crate::Result<()> {
+        // Send mail-from
+        let message = message.into_message()?;
+        self.mail_from(
+            message.mail_from.email.as_ref(),
+            &message.mail_from.parameters,
+        )
+        .await?;
+
+        // Send rcpt-to
+        for rcpt in &message.rcpt_to {
+            self.rcpt_to(rcpt.email.as_ref(), &rcpt.parameters).await?;
+        }
+
+        // Send message
+        if self.capabilities.has_capability(EXT_CHUNKING)
+            && self.bdat(message.body.as_ref()).await.is_ok()
+        {
+            return Ok(());
+        }
+        self.data(message.body.as_ref()).await
+    }
+
+    /// Sends a message to the server.
+    #[cfg(feature = "dkim")]
+    pub async fn send_signed<'x>(
+        &mut self,
+        message: impl IntoMessage<'x>,
+        with_key: &impl mail_auth::common::crypto::SigningKey,
+        signature: mail_auth::dkim::Signature<'_>,
+    ) -> crate::Result<()> {
+        // Send mail-from
+
+        use mail_auth::common::headers::HeaderWriter;
+        let message = message.into_message()?;
+        self.mail_from(
+            message.mail_from.email.as_ref(),
+            &message.mail_from.parameters,
+        )
+        .await?;
+
+        // Send rcpt-to
+        for rcpt in &message.rcpt_to {
+            self.rcpt_to(rcpt.email.as_ref(), &rcpt.parameters).await?;
+        }
+
+        // Sign message
+        let signature = signature
+            .sign(message.body.as_ref(), with_key)
+            .map_err(|_| crate::Error::MissingCredentials)?;
+        let mut signed_message = Vec::with_capacity(message.body.len() + 64);
+        signature.write_header(&mut signed_message);
+        signed_message.extend_from_slice(message.body.as_ref());
+
+        // Send message
+        if self.capabilities.has_capability(EXT_CHUNKING)
+            && self.bdat(&signed_message).await.is_ok()
+        {
+            return Ok(());
+        }
+        self.data(&signed_message).await
+    }
+
+    pub(crate) async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
+        // Transparency procedure
+        #[derive(Debug)]
+        enum State {
+            Cr,
+            CrLf,
+            Init,
+        }
+
+        let mut state = State::Init;
+        let mut last_pos = 0;
+        for (pos, byte) in message.iter().enumerate() {
+            if *byte == b'.' && matches!(state, State::CrLf) {
+                if let Some(bytes) = message.get(last_pos..pos) {
+                    self.stream.write_all(bytes).await?;
+                    self.stream.write_all(b".").await?;
+                    last_pos = pos;
+                }
+                state = State::Init;
+            } else if *byte == b'\r' {
+                state = State::Cr;
+            } else if *byte == b'\n' && matches!(state, State::Cr) {
+                state = State::CrLf;
+            } else {
+                state = State::Init;
+            }
+        }
+        if let Some(bytes) = message.get(last_pos..) {
+            self.stream.write_all(bytes).await?;
+        }
+        self.stream.write_all("\r\n.\r\n".as_bytes()).await
+    }
 }
 
 impl<'x> Message<'x> {
@@ -109,25 +215,18 @@ impl<'x> Parameters<'x> {
         Self { params: Vec::new() }
     }
 
-    pub fn param(&mut self, key: impl Into<Cow<'x, str>>, value: impl Into<Cow<'x, str>>) {
-        self.params.push((key.into(), Some(value.into())));
-    }
-
-    pub fn keyword(&mut self, key: impl Into<Cow<'x, str>>) {
-        self.params.push((key.into(), None));
+    pub fn add(&mut self, param: Parameter<Cow<'x, str>>) -> &mut Self {
+        self.params.push(param);
+        self
     }
 }
 
 impl<'x> Display for Parameters<'x> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if !self.params.is_empty() {
-            for (key, value) in &self.params {
+            for param in &self.params {
                 f.write_str(" ")?;
-                f.write_str(key)?;
-                if let Some(value) = value {
-                    f.write_str("=")?;
-                    f.write_str(value)?;
-                }
+                param.fmt(f)?;
             }
         }
         Ok(())
@@ -144,10 +243,11 @@ impl<'x> IntoMessage<'x> for Message<'x> {
     }
 }
 
+#[cfg(feature = "builder")]
 impl<'x, 'y> IntoMessage<'x> for MessageBuilder<'y> {
     fn into_message(self) -> crate::Result<Message<'x>> {
         let mut mail_from = None;
-        let mut rcpt_to = HashSet::new();
+        let mut rcpt_to = std::collections::HashSet::new();
 
         for (key, value) in self.headers.iter() {
             if key.eq_ignore_ascii_case("from") {

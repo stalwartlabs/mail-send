@@ -1,6 +1,5 @@
 /*
- * Copyright Stalwart Labs Ltd. See the COPYING
- * file at the top-level directory of this distribution.
+ * Copyright Stalwart Labs Ltd.
  *
  * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
  * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
@@ -9,87 +8,93 @@
  * except according to those terms.
  */
 
-use std::{borrow::Cow, convert::TryFrom, fmt::Display};
+use std::{borrow::Cow, fmt::Display};
 
-#[derive(Clone)]
-pub struct Credentials<'x> {
-    pub username: Cow<'x, str>,
-    pub secret: Cow<'x, str>,
-}
+use smtp_proto::{
+    response::generate::BitToString, EhloResponse, AUTH_CRAM_MD5, AUTH_DIGEST_MD5, AUTH_LOGIN,
+    AUTH_PLAIN, AUTH_XOAUTH2,
+};
+use tokio::io::{AsyncRead, AsyncWrite};
 
-impl<'x> From<(&'x str, &'x str)> for Credentials<'x> {
-    fn from(credentials: (&'x str, &'x str)) -> Self {
-        Credentials {
-            username: credentials.0.into(),
-            secret: credentials.1.into(),
+use crate::{Credentials, SmtpClient};
+
+impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
+    pub async fn authenticate(
+        &mut self,
+        credentials: impl Into<Credentials<'_>>,
+    ) -> crate::Result<&mut Self> {
+        let credentials = credentials.into();
+        // Try authenticating from most secure to least secure
+        let mut has_err = None;
+        if (self.capabilities.auth_mechanisms
+            & (AUTH_CRAM_MD5 | AUTH_DIGEST_MD5 | AUTH_LOGIN | AUTH_PLAIN | AUTH_XOAUTH2))
+            != 0
+        {
+            for mechanism in [
+                AUTH_CRAM_MD5,
+                AUTH_DIGEST_MD5,
+                AUTH_XOAUTH2,
+                AUTH_PLAIN,
+                AUTH_LOGIN,
+            ] {
+                if (self.capabilities.auth_mechanisms & mechanism) != 0 {
+                    match self.auth(mechanism, &credentials).await {
+                        Ok(_) => {
+                            return Ok(self);
+                        }
+                        Err(err) => match err {
+                            crate::Error::UnexpectedReply(reply) => {
+                                has_err = reply.into();
+                            }
+                            _ => return Err(err),
+                        },
+                    }
+                }
+            }
+        }
+
+        if let Some(has_err) = has_err {
+            Err(crate::Error::AuthenticationFailed(has_err))
+        } else {
+            Err(crate::Error::UnsupportedAuthMechanism)
         }
     }
-}
 
-impl<'x> From<(String, String)> for Credentials<'x> {
-    fn from(credentials: (String, String)) -> Self {
-        Credentials {
-            username: credentials.0.into(),
-            secret: credentials.1.into(),
+    pub(crate) async fn auth(
+        &mut self,
+        mechanism: u64,
+        credentials: &Credentials<'_>,
+    ) -> crate::Result<()> {
+        let mut reply = self
+            .cmd(format!("AUTH {}\r\n", mechanism.to_mechanism()).as_bytes())
+            .await?;
+
+        for _ in 0..3 {
+            match reply.code() {
+                [3, 3, 4] => {
+                    reply = self
+                        .cmd(
+                            format!("{}\r\n", credentials.encode(mechanism, reply.message())?)
+                                .as_bytes(),
+                        )
+                        .await?;
+                }
+                [2, 3, 5] => {
+                    return Ok(());
+                }
+                _ => {
+                    return Err(crate::Error::UnexpectedReply(reply));
+                }
+            }
         }
+
+        Err(crate::Error::UnexpectedReply(reply))
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum Error {
     InvalidChallenge,
-}
-
-/// Authentication mechanism
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Mechanism {
-    /// Plain
-    Plain = 5,
-
-    /// Login
-    Login = 4,
-
-    /// Digest MD5
-    #[cfg(feature = "digest-md5")]
-    DigestMD5 = 3,
-
-    /// Challenge-Response Authentication Mechanism (CRAM)
-    #[cfg(feature = "cram-md5")]
-    CramMD5 = 2,
-
-    /// SASL XOAUTH2 (used by Google)
-    XOauth2 = 1,
-}
-
-impl TryFrom<&str> for Mechanism {
-    type Error = ();
-
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        match s {
-            "PLAIN" => Ok(Mechanism::Plain),
-            "LOGIN" => Ok(Mechanism::Login),
-            #[cfg(feature = "digest-md5")]
-            "DIGEST-MD5" => Ok(Mechanism::DigestMD5),
-            #[cfg(feature = "cram-md5")]
-            "CRAM-MD5" => Ok(Mechanism::CramMD5),
-            "XOAUTH2" => Ok(Mechanism::XOauth2),
-            _ => Err(()),
-        }
-    }
-}
-
-impl Display for Mechanism {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Mechanism::Plain => write!(f, "PLAIN"),
-            Mechanism::Login => write!(f, "LOGIN"),
-            #[cfg(feature = "digest-md5")]
-            Mechanism::DigestMD5 => write!(f, "DIGEST-MD5"),
-            #[cfg(feature = "cram-md5")]
-            Mechanism::CramMD5 => write!(f, "CRAM-MD5"),
-            Mechanism::XOauth2 => write!(f, "XOAUTH2"),
-        }
-    }
 }
 
 impl<'x> Credentials<'x> {
@@ -104,14 +109,14 @@ impl<'x> Credentials<'x> {
         }
     }
 
-    pub(crate) fn encode(&self, mechanism: Mechanism, challenge: &str) -> crate::Result<String> {
+    pub(crate) fn encode(&self, mechanism: u64, challenge: &str) -> crate::Result<String> {
         Ok(base64::encode(
             match mechanism {
-                Mechanism::Plain => {
+                AUTH_PLAIN => {
                     format!("\u{0}{}\u{0}{}", self.username, self.secret)
                 }
 
-                Mechanism::Login => {
+                AUTH_LOGIN => {
                     let challenge = base64::decode(challenge)?;
 
                     if b"user name"
@@ -133,7 +138,7 @@ impl<'x> Credentials<'x> {
                 }
 
                 #[cfg(feature = "digest-md5")]
-                Mechanism::DigestMD5 => {
+                AUTH_DIGEST_MD5 => {
                     let mut buf = Vec::with_capacity(10);
                     let mut key = None;
                     let mut in_quote = false;
@@ -205,7 +210,7 @@ impl<'x> Credentials<'x> {
                         use rand::RngCore;
                         let mut buf = [0u8; 16];
                         rand::thread_rng().fill_bytes(&mut buf);
-                        base64::encode(&buf)
+                        base64::encode(buf)
                     };
 
                     #[cfg(test)]
@@ -239,7 +244,7 @@ impl<'x> Credentials<'x> {
                 }
 
                 #[cfg(feature = "cram-md5")]
-                Mechanism::CramMD5 => {
+                AUTH_CRAM_MD5 => {
                     let mut secret_opad: Vec<u8> = vec![0x5c; 64];
                     let mut secret_ipad: Vec<u8> = vec![0x36; 64];
 
@@ -261,21 +266,41 @@ impl<'x> Credentials<'x> {
                     format!("{} {:x}", self.username, md5::compute(&secret_opad))
                 }
 
-                Mechanism::XOauth2 => format!(
+                AUTH_XOAUTH2 => format!(
                     "user={}\x01auth=Bearer {}\x01\x01",
                     self.username, self.secret
                 ),
+                _ => return Err(crate::Error::UnsupportedAuthMechanism),
             }
             .as_bytes(),
         ))
     }
 }
 
+impl<'x> From<(&'x str, &'x str)> for Credentials<'x> {
+    fn from(credentials: (&'x str, &'x str)) -> Self {
+        Credentials {
+            username: credentials.0.into(),
+            secret: credentials.1.into(),
+        }
+    }
+}
+
+impl<'x> From<(String, String)> for Credentials<'x> {
+    fn from(credentials: (String, String)) -> Self {
+        Credentials {
+            username: credentials.0.into(),
+            secret: credentials.1.into(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use std::convert::TryInto;
 
-    use crate::smtp::auth::{Credentials, Mechanism};
+    use smtp_proto::{AUTH_CRAM_MD5, AUTH_DIGEST_MD5, AUTH_LOGIN, AUTH_PLAIN, AUTH_XOAUTH2};
+
+    use crate::smtp::auth::Credentials;
 
     #[test]
     fn auth_encode() {
@@ -284,7 +309,7 @@ mod test {
         assert_eq!(
             Credentials::new("chris", "secret")
                 .encode(
-                    Mechanism::DigestMD5,
+                    AUTH_DIGEST_MD5,
                     concat!(
                         "cmVhbG09ImVsd29vZC5pbm5vc29mdC5jb20iLG5vbmNlPSJPQTZNRzl0",
                         "RVFHbTJoaCIscW9wPSJhdXRoIixhbGdvcml0aG09bWQ1LXNlc3MsY2hh",
@@ -306,7 +331,7 @@ mod test {
         assert_eq!(
             Credentials::new("tim", "tanstaaftanstaaf")
                 .encode(
-                    Mechanism::CramMD5,
+                    AUTH_CRAM_MD5,
                     "PDE4OTYuNjk3MTcwOTUyQHBvc3RvZmZpY2UucmVzdG9uLm1jaS5uZXQ+",
                 )
                 .unwrap(),
@@ -319,7 +344,7 @@ mod test {
                 "someuser@example.com",
                 "ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg"
             )
-            .encode(Mechanism::XOauth2, "",)
+            .encode(AUTH_XOAUTH2, "",)
             .unwrap(),
             concat!(
                 "dXNlcj1zb21ldXNlckBleGFtcGxlLmNvbQFhdXRoPUJlYXJlciB5YTI5Ln",
@@ -330,13 +355,13 @@ mod test {
         // Login
         assert_eq!(
             Credentials::new("tim", "tanstaaftanstaaf")
-                .encode(Mechanism::Login, "VXNlciBOYW1lAA==",)
+                .encode(AUTH_LOGIN, "VXNlciBOYW1lAA==",)
                 .unwrap(),
             "dGlt"
         );
         assert_eq!(
             Credentials::new("tim", "tanstaaftanstaaf")
-                .encode(Mechanism::Login, "UGFzc3dvcmQA",)
+                .encode(AUTH_LOGIN, "UGFzc3dvcmQA",)
                 .unwrap(),
             "dGFuc3RhYWZ0YW5zdGFhZg=="
         );
@@ -344,31 +369,9 @@ mod test {
         // Plain
         assert_eq!(
             Credentials::new("tim", "tanstaaftanstaaf")
-                .encode(Mechanism::Plain, "",)
+                .encode(AUTH_PLAIN, "",)
                 .unwrap(),
             "AHRpbQB0YW5zdGFhZnRhbnN0YWFm"
-        );
-    }
-
-    #[test]
-    fn sort_mechanisms() {
-        let mut mechs: Vec<Mechanism> = vec![
-            "CRAM-MD5".try_into().unwrap(),
-            "XOAUTH2".try_into().unwrap(),
-            "PLAIN".try_into().unwrap(),
-            "DIGEST-MD5".try_into().unwrap(),
-            "LOGIN".try_into().unwrap(),
-        ];
-        mechs.sort_unstable();
-        assert_eq!(
-            mechs,
-            vec![
-                Mechanism::XOauth2,
-                Mechanism::CramMD5,
-                Mechanism::DigestMD5,
-                Mechanism::Login,
-                Mechanism::Plain,
-            ]
         );
     }
 }

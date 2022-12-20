@@ -1,3 +1,8 @@
+mail-send 0.3.0
+================================
+- Use of generics on TCP streams instead of static dispatch with enums.
+- Switch to ``mail-auth`` for DKIM authentication.
+
 mail-send 0.2.3
 ================================
 - Fix: Send gets stuck when the message has a binary attachment (#7)

@@ -9,8 +9,10 @@
  * except according to those terms.
  */
 
+pub use mail_auth::sha2::Sha256;
+use mail_auth::{common::crypto::RsaKey, dkim::Signature};
 use mail_builder::MessageBuilder;
-use mail_send::{dkim::DKIM, Transport};
+use mail_send::SmtpClientBuilder;
 
 const TEST_KEY: &str = r#"-----BEGIN RSA PRIVATE KEY-----
 MIICXwIBAAKBgQDwIRP/UC3SBsEmGqZ9ZJW3/DkMoGeLnQg1fWn7/zYtIxN2SnFC
@@ -40,22 +42,21 @@ async fn main() {
         .text_body("These pretzels are making me thirsty.")
         .binary_attachment("image/png", "pretzels.png", [1, 2, 3, 4].as_ref());
 
-    // Set up DKIM signer
-    let dkim = DKIM::from_pkcs1_pem(TEST_KEY)
-        .unwrap()
+    // Sign an e-mail message using RSA-SHA256
+    let pk_rsa = RsaKey::<Sha256>::from_pkcs1_pem(TEST_KEY).unwrap();
+    let signature_rsa = Signature::new()
+        .headers(["From", "To", "Subject"])
         .domain("example.com")
-        .selector("2022")
-        .headers(["From", "To", "Subject"]) // Headers to sign
+        .selector("default")
         .expiration(60 * 60 * 7); // Number of seconds before this signature expires (optional)
 
     // Connect to an SMTP relay server over TLS.
     // Signs each message with the configured DKIM signer.
-    Transport::new("smtp.gmail.com")
-        .dkim(dkim)
-        .connect_tls()
+    SmtpClientBuilder::new()
+        .connect_tls("smtp.gmail.com", 465)
         .await
         .unwrap()
-        .send(message)
+        .send_signed(message, &pk_rsa, signature_rsa)
         .await
         .unwrap();
 }

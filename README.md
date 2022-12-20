@@ -9,7 +9,7 @@ _mail-send_ is a Rust library to build, sign and send e-mail messages via SMTP. 
 
 - Generates **e-mail** messages conforming to the Internet Message Format standard (_RFC 5322_).
 - Full **MIME** support (_RFC 2045 - 2049_) with automatic selection of the most optimal encoding for each message body part.
-- DomainKeys Identified Mail (**DKIM**) Signatures (_RFC 6376_).
+- DomainKeys Identified Mail (**DKIM**) Signatures (_RFC 6376_) with ED25519-SHA256, RSA-SHA256 and RSA-SHA1 support.
 - Simple Mail Transfer Protocol (**SMTP**; _RFC 5321_) delivery.
 - SMTP Service Extension for Secure SMTP over **TLS** (_RFC 3207_).
 - SMTP Service Extension for Authentication (_RFC 4954_) with automatic mechanism negotiation (from most secure to least secure):
@@ -36,11 +36,13 @@ Send a message via an SMTP server that requires authentication:
         .html_body("<h1>Hello, world!</h1>")
         .text_body("Hello world!");
 
-    // Connect to an SMTP relay server over TLS and
+    // Connect to the SMTP submissions port, upgrade to TLS and
     // authenticate using the provided credentials.
-    Transport::new("smtp.gmail.com")
-        .credentials("john", "p4ssw0rd")
-        .connect_tls()
+    SmtpClientBuilder::new()
+        .connect_starttls("smtp.gmail.com", 587)
+        .await
+        .unwrap()
+        .authenticate(("john", "p4ssw0rd"))
         .await
         .unwrap()
         .send(message)
@@ -59,47 +61,21 @@ Sign a message with DKIM and send it via an SMTP relay server:
         .text_body("These pretzels are making me thirsty.")
         .binary_attachment("image/png", "pretzels.png", [1, 2, 3, 4].as_ref());
 
-    // Set up DKIM signer
-    let dkim = DKIM::from_pkcs1_pem_file("./cert.pem")
-        .unwrap()
+    // Sign an e-mail message using RSA-SHA256
+    let pk_rsa = RsaKey::<Sha256>::from_pkcs1_pem(TEST_KEY).unwrap();
+    let signature_rsa = Signature::new()
+        .headers(["From", "To", "Subject"])
         .domain("example.com")
-        .selector("2022")
-        .headers(["From", "To", "Subject"]) // Headers to sign
+        .selector("default")
         .expiration(60 * 60 * 7); // Number of seconds before this signature expires (optional)
 
-    // Connect to an SMTP relay server over TLS.
-    // Signs each message with the configured DKIM signer.
-    Transport::new("smtp.example.com")
-        .dkim(dkim)
-        .connect_tls()
+    // Connect to an SMTP relay server over TLS and
+    // sign the message with the provided DKIM signature.
+    SmtpClientBuilder::new()
+        .connect_tls("smtp.example.com", 465)
         .await
         .unwrap()
-        .send(message)
-        .await
-        .unwrap();
-```
-
-Send a message via an unsecured SMTP listening on port 2525. Mail-send will automatically upgrade the connection to TLS if the server advertises the STARTTLS extension:
-
-```rust
-    // Build a simple multipart message
-    let message = MessageBuilder::new()
-        .from(("John Doe", "john@example.com"))
-        .to(vec![
-            ("Jane Doe", "jane@example.com"),
-            ("James Smith", "james@test.com"),
-        ])
-        .subject("Hi!")
-        .html_body("<h1>Hello, world!</h1>")
-        .text_body("Hello world!");
-
-    // Send the message
-    Transport::new("unsecured.example.com")
-        .port(2525)
-        .connect()
-        .await
-        .unwrap()
-        .send(message)
+        .send_signed(message, &pk_rsa, signature_rsa)
         .await
         .unwrap();
 ```

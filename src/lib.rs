@@ -1,6 +1,5 @@
 /*
- * Copyright Stalwart Labs Ltd. See the COPYING
- * file at the top-level directory of this distribution.
+ * Copyright Stalwart Labs Ltd.
  *
  * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
  * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
@@ -20,7 +19,7 @@
 //!
 //! - Generates **e-mail** messages conforming to the Internet Message Format standard (_RFC 5322_).
 //! - Full **MIME** support (_RFC 2045 - 2049_) with automatic selection of the most optimal encoding for each message body part.
-//! - DomainKeys Identified Mail (**DKIM**) Signatures (_RFC 6376_).
+//! - DomainKeys Identified Mail (**DKIM**) Signatures (_RFC 6376_) with ED25519-SHA256, RSA-SHA256 and RSA-SHA1 support.
 //! - Simple Mail Transfer Protocol (**SMTP**; _RFC 5321_) delivery.
 //! - SMTP Service Extension for Secure SMTP over **TLS** (_RFC 3207_).
 //! - SMTP Service Extension for Authentication (_RFC 4954_) with automatic mechanism negotiation (from most secure to least secure):
@@ -47,11 +46,13 @@
 //!         .html_body("<h1>Hello, world!</h1>")
 //!         .text_body("Hello world!");
 //!
-//!     // Connect to an SMTP relay server over TLS and
+//!     // Connect to the SMTP submissions port, upgrade to TLS and
 //!     // authenticate using the provided credentials.
-//!     Transport::new("smtp.gmail.com")
-//!         .credentials("john", "p4ssw0rd")
-//!         .connect_tls()
+//!     SmtpClientBuilder::new()
+//!         .connect_starttls("smtp.gmail.com", 587)
+//!         .await
+//!         .unwrap()
+//!         .authenticate(("john", "p4ssw0rd"))
 //!         .await
 //!         .unwrap()
 //!         .send(message)
@@ -70,47 +71,21 @@
 //!         .text_body("These pretzels are making me thirsty.")
 //!         .binary_attachment("image/png", "pretzels.png", [1, 2, 3, 4].as_ref());
 //!
-//!     // Set up DKIM signer
-//!     let dkim = DKIM::from_pkcs1_pem_file("./cert.pem")
-//!         .unwrap()
+//!     // Sign an e-mail message using RSA-SHA256
+//!     let pk_rsa = RsaKey::<Sha256>::from_pkcs1_pem(TEST_KEY).unwrap();
+//!     let signature_rsa = Signature::new()
+//!         .headers(["From", "To", "Subject"])
 //!         .domain("example.com")
-//!         .selector("2022")
-//!         .headers(["From", "To", "Subject"]) // Headers to sign
+//!         .selector("default")
 //!         .expiration(60 * 60 * 7); // Number of seconds before this signature expires (optional)
 //!
-//!     // Connect to an SMTP relay server over TLS.
-//!     // Signs each message with the configured DKIM signer.
-//!     Transport::new("smtp.example.com")
-//!         .dkim(dkim)
-//!         .connect_tls()
+//!     // Connect to an SMTP relay server over TLS and
+//!     // sign the message with the provided DKIM signature.
+//!     SmtpClientBuilder::new()
+//!         .connect_tls("smtp.example.com", 465)
 //!         .await
 //!         .unwrap()
-//!         .send(message)
-//!         .await
-//!         .unwrap();
-//! ```
-//!
-//! Send a message via an unsecured SMTP listening on port 2525. Mail-send will automatically upgrade the connection to TLS if the server advertises the STARTTLS extension:
-//!
-//! ```rust
-//!     // Build a simple multipart message
-//!     let message = MessageBuilder::new()
-//!         .from(("John Doe", "john@example.com"))
-//!         .to(vec![
-//!             ("Jane Doe", "jane@example.com"),
-//!             ("James Smith", "james@test.com"),
-//!         ])
-//!         .subject("Hi!")
-//!         .html_body("<h1>Hello, world!</h1>")
-//!         .text_body("Hello world!");
-//!
-//!     // Send the message
-//!     Transport::new("unsecured.example.com")
-//!         .port(2525)
-//!         .connect()
-//!         .await
-//!         .unwrap()
-//!         .send(message)
+//!         .send_signed(message, &pk_rsa, signature_rsa)
 //!         .await
 //!         .unwrap();
 //! ```
@@ -150,17 +125,16 @@
 //! [COPYING]: https://github.com/stalwartlabs/mail-send/blob/main/COPYING
 //!
 
-#[cfg(feature = "dkim")]
-pub mod dkim;
 pub mod smtp;
-#[forbid(unsafe_code)]
-pub mod transport;
-
 use std::{borrow::Cow, fmt::Display, time::Duration};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_rustls::TlsConnector;
 
+#[cfg(feature = "builder")]
 pub use mail_builder;
-use smtp::auth::Credentials;
-use transport::stream::Stream;
+
+#[cfg(feature = "dkim")]
+pub use mail_auth;
 
 #[derive(Debug)]
 pub enum Error {
@@ -173,18 +147,14 @@ pub enum Error {
     // SMTP authentication error.
     Auth(smtp::auth::Error),
 
-    /// DKIM signing error
-    #[cfg(feature = "dkim")]
-    DKIM(dkim::Error),
-
     /// Failure parsing SMTP reply
-    UnparseableReply(smtp::reply::Error),
+    UnparseableReply,
 
     /// Unexpected SMTP reply.
-    UnexpectedReply(smtp::reply::Reply),
+    UnexpectedReply(smtp_proto::Response<String>),
 
     /// SMTP authentication failure.
-    AuthenticationFailed(smtp::reply::Reply),
+    AuthenticationFailed(smtp_proto::Response<String>),
 
     /// Invalid TLS name provided.
     InvalidTLSName,
@@ -203,21 +173,31 @@ pub enum Error {
 
     /// Connection timeout.
     Timeout,
+
+    /// STARTTLS not available
+    MissingStartTls,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// SMTP client.
-pub struct Transport<'x, State = Disconnected> {
-    pub _state: std::marker::PhantomData<State>,
-    pub stream: Stream,
+/// SMTP client builder
+#[derive(Clone)]
+pub struct SmtpClientBuilder {
     pub timeout: Duration,
-    pub credentials: Option<Credentials<'x>>,
-    #[cfg(feature = "dkim")]
-    pub dkim: Option<dkim::DKIM<'x>>,
-    pub allow_invalid_certs: bool,
-    pub hostname: Cow<'x, str>,
-    pub port: u16,
+    pub tls: TlsConnector,
+}
+
+/// SMTP client builder
+pub struct SmtpClient<T: AsyncRead + AsyncWrite, U> {
+    stream: T,
+    timeout: Duration,
+    capabilities: U,
+}
+
+#[derive(Clone)]
+pub struct Credentials<'x> {
+    pub username: Cow<'x, str>,
+    pub secret: Cow<'x, str>,
 }
 
 pub struct Connected;
@@ -229,9 +209,7 @@ impl Display for Error {
             Error::Io(e) => write!(f, "I/O error: {}", e),
             Error::Base64(e) => write!(f, "Base64 decode error: {}", e),
             Error::Auth(e) => write!(f, "SMTP authentication error: {}", e),
-            #[cfg(feature = "dkim")]
-            Error::DKIM(e) => write!(f, "DKIM signing error: {}", e),
-            Error::UnparseableReply(e) => write!(f, "Unparseable SMTP reply: {}", e),
+            Error::UnparseableReply => write!(f, "Unparseable SMTP reply"),
             Error::UnexpectedReply(e) => e.fmt(f),
             Error::AuthenticationFailed(e) => e.fmt(f),
             Error::InvalidTLSName => write!(f, "Invalid TLS name provided"),
@@ -243,6 +221,7 @@ impl Display for Error {
                 "The server does no support any of the available authentication methods"
             ),
             Error::Timeout => write!(f, "Connection timeout"),
+            Error::MissingStartTls => write!(f, "STARTTLS extension unavailable"),
         }
     }
 }
