@@ -14,7 +14,6 @@ use rustls::{
     client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier},
     Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName,
 };
-use smtp_proto::Severity;
 use tokio::net::TcpStream;
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
@@ -32,7 +31,7 @@ impl<U> SmtpClient<TcpStream, U> {
         // Send STARTTLS command
         self.cmd(b"STARTTLS\r\n")
             .await?
-            .assert_severity(Severity::PositiveCompletion)?;
+            .assert_positive_completion()?;
 
         self.into_tls(tls_connector, hostname).await
     }
@@ -42,23 +41,27 @@ impl<U> SmtpClient<TcpStream, U> {
         tls_connector: &TlsConnector,
         hostname: &str,
     ) -> crate::Result<SmtpClient<TlsStream<TcpStream>, U>> {
-        Ok(SmtpClient {
-            stream: tls_connector
-                .connect(
-                    ServerName::try_from(hostname).map_err(|_| crate::Error::InvalidTLSName)?,
-                    self.stream,
-                )
-                .await?,
-            timeout: self.timeout,
-            capabilities: self.capabilities,
+        tokio::time::timeout(self.timeout, async {
+            Ok(SmtpClient {
+                stream: tls_connector
+                    .connect(
+                        ServerName::try_from(hostname).map_err(|_| crate::Error::InvalidTLSName)?,
+                        self.stream,
+                    )
+                    .await?,
+                timeout: self.timeout,
+                capabilities: self.capabilities,
+            })
         })
+        .await
+        .map_err(|_| crate::Error::Timeout)?
     }
 }
 
-pub(crate) fn default_tls_config(allow_invalid_certs: bool) -> ClientConfig {
+pub fn build_tls_connector(allow_invalid_certs: bool) -> TlsConnector {
     let config = ClientConfig::builder().with_safe_defaults();
 
-    if !allow_invalid_certs {
+    let config = if !allow_invalid_certs {
         let mut root_cert_store = RootCertStore::empty();
 
         root_cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
@@ -76,7 +79,9 @@ pub(crate) fn default_tls_config(allow_invalid_certs: bool) -> ClientConfig {
     } else {
         config.with_custom_certificate_verifier(Arc::new(DummyVerifier {}))
     }
-    .with_no_client_auth()
+    .with_no_client_auth();
+
+    TlsConnector::from(Arc::new(config))
 }
 
 #[doc(hidden)]

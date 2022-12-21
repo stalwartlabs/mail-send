@@ -126,7 +126,7 @@
 //!
 
 pub mod smtp;
-use std::{borrow::Cow, fmt::Display, time::Duration};
+use std::{fmt::Display, hash::Hash, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_rustls::TlsConnector;
 
@@ -194,10 +194,11 @@ pub struct SmtpClient<T: AsyncRead + AsyncWrite, U> {
     capabilities: U,
 }
 
-#[derive(Clone)]
-pub struct Credentials<'x> {
-    pub username: Cow<'x, str>,
-    pub secret: Cow<'x, str>,
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub enum Credentials<T: AsRef<str> + PartialEq + Eq + Hash> {
+    Plain { username: T, secret: T },
+    OAuthBearer { token: T },
+    XOauth2 { username: T, secret: T },
 }
 
 pub struct Connected;

@@ -24,33 +24,47 @@ impl From<auth::Error> for crate::Error {
     }
 }
 
-trait AssertReply {
+trait AssertReply: Sized {
     fn is_positive_completion(&self) -> bool;
+    fn assert_positive_completion(self) -> crate::Result<()>;
     fn assert_severity(self, severity: Severity) -> crate::Result<()>;
     fn assert_code(self, code: [u8; 3]) -> crate::Result<()>;
 }
 
 impl AssertReply for Response<String> {
     /// Returns `true` if the reply is a positive completion.
+    #[inline(always)]
     fn is_positive_completion(&self) -> bool {
-        self.severity() == Severity::PositiveCompletion
+        self.code[0] == 2
     }
 
     /// Returns Ok if the reply has the specified severity.
+    #[inline(always)]
     fn assert_severity(self, severity: Severity) -> crate::Result<()> {
-        if self.severity() != severity {
-            Err(crate::Error::UnexpectedReply(self))
-        } else {
+        if self.severity() == severity {
             Ok(())
+        } else {
+            Err(crate::Error::UnexpectedReply(self))
+        }
+    }
+
+    /// Returns Ok if the reply returned a 2xx code.
+    #[inline(always)]
+    fn assert_positive_completion(self) -> crate::Result<()> {
+        if self.code[0] == 2 {
+            Ok(())
+        } else {
+            Err(crate::Error::UnexpectedReply(self))
         }
     }
 
     /// Returns Ok if the reply has the specified status code.
+    #[inline(always)]
     fn assert_code(self, code: [u8; 3]) -> crate::Result<()> {
-        if self.code() != code {
-            Err(crate::Error::UnexpectedReply(self))
-        } else {
+        if self.code() == code {
             Ok(())
+        } else {
+            Err(crate::Error::UnexpectedReply(self))
         }
     }
 }

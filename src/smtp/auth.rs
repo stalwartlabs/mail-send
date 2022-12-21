@@ -8,48 +8,47 @@
  * except according to those terms.
  */
 
-use std::{borrow::Cow, fmt::Display};
+use std::{fmt::Display, hash::Hash};
 
 use smtp_proto::{
     response::generate::BitToString, EhloResponse, AUTH_CRAM_MD5, AUTH_DIGEST_MD5, AUTH_LOGIN,
-    AUTH_PLAIN, AUTH_XOAUTH2,
+    AUTH_OAUTHBEARER, AUTH_PLAIN, AUTH_XOAUTH2,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{Credentials, SmtpClient};
 
 impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
-    pub async fn authenticate(
+    pub async fn authenticate<U>(
         &mut self,
-        credentials: impl Into<Credentials<'_>>,
-    ) -> crate::Result<&mut Self> {
+        credentials: impl Into<Credentials<U>>,
+    ) -> crate::Result<&mut Self>
+    where
+        U: AsRef<str> + PartialEq + Eq + Hash,
+    {
         let credentials = credentials.into();
+        let mut available_mechanisms = match &credentials {
+            Credentials::Plain { .. } => AUTH_CRAM_MD5 | AUTH_DIGEST_MD5 | AUTH_LOGIN | AUTH_PLAIN,
+            Credentials::OAuthBearer { .. } => AUTH_OAUTHBEARER,
+            Credentials::XOauth2 { .. } => AUTH_XOAUTH2,
+        } & self.capabilities.auth_mechanisms;
+
         // Try authenticating from most secure to least secure
         let mut has_err = None;
-        if (self.capabilities.auth_mechanisms
-            & (AUTH_CRAM_MD5 | AUTH_DIGEST_MD5 | AUTH_LOGIN | AUTH_PLAIN | AUTH_XOAUTH2))
-            != 0
-        {
-            for mechanism in [
-                AUTH_CRAM_MD5,
-                AUTH_DIGEST_MD5,
-                AUTH_XOAUTH2,
-                AUTH_PLAIN,
-                AUTH_LOGIN,
-            ] {
-                if (self.capabilities.auth_mechanisms & mechanism) != 0 {
-                    match self.auth(mechanism, &credentials).await {
-                        Ok(_) => {
-                            return Ok(self);
-                        }
-                        Err(err) => match err {
-                            crate::Error::UnexpectedReply(reply) => {
-                                has_err = reply.into();
-                            }
-                            _ => return Err(err),
-                        },
-                    }
+        while available_mechanisms != 0 {
+            let mechanism = (63 - available_mechanisms.leading_zeros()) as u64;
+            available_mechanisms ^= 1 << mechanism;
+            match self.auth(mechanism, &credentials).await {
+                Ok(_) => {
+                    return Ok(self);
                 }
+                Err(err) => match err {
+                    crate::Error::UnexpectedReply(reply) => {
+                        has_err = reply.into();
+                    }
+                    crate::Error::UnsupportedAuthMechanism => (),
+                    _ => return Err(err),
+                },
             }
         }
 
@@ -60,14 +59,28 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
         }
     }
 
-    pub(crate) async fn auth(
+    pub(crate) async fn auth<U>(
         &mut self,
         mechanism: u64,
-        credentials: &Credentials<'_>,
-    ) -> crate::Result<()> {
-        let mut reply = self
-            .cmd(format!("AUTH {}\r\n", mechanism.to_mechanism()).as_bytes())
-            .await?;
+        credentials: &Credentials<U>,
+    ) -> crate::Result<()>
+    where
+        U: AsRef<str> + PartialEq + Eq + Hash,
+    {
+        let mut reply = if (mechanism & (AUTH_PLAIN | AUTH_XOAUTH2 | AUTH_OAUTHBEARER)) != 0 {
+            self.cmd(
+                format!(
+                    "AUTH {} {}\r\n",
+                    mechanism.to_mechanism(),
+                    credentials.encode(mechanism, "")?,
+                )
+                .as_bytes(),
+            )
+            .await?
+        } else {
+            self.cmd(format!("AUTH {}\r\n", mechanism.to_mechanism()).as_bytes())
+                .await?
+        };
 
         for _ in 0..3 {
             match reply.code() {
@@ -97,27 +110,23 @@ pub enum Error {
     InvalidChallenge,
 }
 
-impl<'x> Credentials<'x> {
+impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
     /// Creates a new `Credentials` instance.
-    pub fn new(
-        username: impl Into<Cow<'x, str>>,
-        secret: impl Into<Cow<'x, str>>,
-    ) -> Credentials<'x> {
-        Credentials {
-            username: username.into(),
-            secret: secret.into(),
-        }
+    pub fn new(username: T, secret: T) -> Credentials<T> {
+        Credentials::Plain { username, secret }
     }
 
-    pub(crate) fn encode(&self, mechanism: u64, challenge: &str) -> crate::Result<String> {
+    pub fn encode(&self, mechanism: u64, challenge: &str) -> crate::Result<String> {
         Ok(base64::encode(
-            match mechanism {
-                AUTH_PLAIN => {
-                    format!("\u{0}{}\u{0}{}", self.username, self.secret)
+            match (mechanism, self) {
+                (AUTH_PLAIN, Credentials::Plain { username, secret }) => {
+                    format!("\u{0}{}\u{0}{}", username.as_ref(), secret.as_ref())
                 }
 
-                AUTH_LOGIN => {
+                (AUTH_LOGIN, Credentials::Plain { username, secret }) => {
                     let challenge = base64::decode(challenge)?;
+                    let username = username.as_ref();
+                    let secret = secret.as_ref();
 
                     if b"user name"
                         .eq_ignore_ascii_case(challenge.get(0..9).ok_or(Error::InvalidChallenge)?)
@@ -126,11 +135,11 @@ impl<'x> Credentials<'x> {
                             challenge.get(0..8).ok_or(Error::InvalidChallenge)?,
                         )
                     {
-                        &self.username
+                        &username
                     } else if b"password"
                         .eq_ignore_ascii_case(challenge.get(0..8).ok_or(Error::InvalidChallenge)?)
                     {
-                        &self.secret
+                        &secret
                     } else {
                         return Err(Error::InvalidChallenge.into());
                     }
@@ -138,13 +147,15 @@ impl<'x> Credentials<'x> {
                 }
 
                 #[cfg(feature = "digest-md5")]
-                AUTH_DIGEST_MD5 => {
+                (AUTH_DIGEST_MD5, Credentials::Plain { username, secret }) => {
                     let mut buf = Vec::with_capacity(10);
                     let mut key = None;
                     let mut in_quote = false;
                     let mut values = std::collections::HashMap::new();
                     let challenge = base64::decode(challenge)?;
                     let challenge_len = challenge.len();
+                    let username = username.as_ref();
+                    let secret = secret.as_ref();
 
                     for (pos, byte) in challenge.into_iter().enumerate() {
                         let add_key = match byte {
@@ -189,9 +200,8 @@ impl<'x> Credentials<'x> {
                             ("smtp/localhost".to_string(), "", "".to_string())
                         };
 
-                    let credentials = md5::compute(
-                        format!("{}:{}:{}", self.username, realm, self.secret).as_bytes(),
-                    );
+                    let credentials =
+                        md5::compute(format!("{}:{}:{}", username, realm, secret).as_bytes());
 
                     let a2 = md5::compute(
                         if values.get("qpop").map_or(false, |v| v == "auth") {
@@ -227,7 +237,7 @@ impl<'x> Credentials<'x> {
                             "cnonce=\"{}\",digest-uri=\"{}\",response={:x},qop={}"
                         ),
                         charset,
-                        self.username,
+                        username,
                         realm_response,
                         nonce,
                         cnonce,
@@ -244,17 +254,19 @@ impl<'x> Credentials<'x> {
                 }
 
                 #[cfg(feature = "cram-md5")]
-                AUTH_CRAM_MD5 => {
+                (AUTH_CRAM_MD5, Credentials::Plain { username, secret }) => {
                     let mut secret_opad: Vec<u8> = vec![0x5c; 64];
                     let mut secret_ipad: Vec<u8> = vec![0x36; 64];
+                    let username = username.as_ref();
+                    let secret = secret.as_ref();
 
-                    if self.secret.len() < 64 {
-                        for (pos, byte) in self.secret.as_bytes().iter().enumerate() {
+                    if secret.len() < 64 {
+                        for (pos, byte) in secret.as_bytes().iter().enumerate() {
                             secret_opad[pos] = *byte ^ 0x5c;
                             secret_ipad[pos] = *byte ^ 0x36;
                         }
                     } else {
-                        for (pos, byte) in md5::compute(self.secret.as_bytes()).iter().enumerate() {
+                        for (pos, byte) in md5::compute(secret.as_bytes()).iter().enumerate() {
                             secret_opad[pos] = *byte ^ 0x5c;
                             secret_ipad[pos] = *byte ^ 0x36;
                         }
@@ -263,13 +275,17 @@ impl<'x> Credentials<'x> {
                     secret_ipad.extend_from_slice(&base64::decode(challenge)?);
                     secret_opad.extend_from_slice(&md5::compute(&secret_ipad).0);
 
-                    format!("{} {:x}", self.username, md5::compute(&secret_opad))
+                    format!("{} {:x}", username, md5::compute(&secret_opad))
                 }
 
-                AUTH_XOAUTH2 => format!(
+                (AUTH_XOAUTH2, Credentials::XOauth2 { username, secret }) => format!(
                     "user={}\x01auth=Bearer {}\x01\x01",
-                    self.username, self.secret
+                    username.as_ref(),
+                    secret.as_ref()
                 ),
+                (AUTH_OAUTHBEARER, Credentials::OAuthBearer { token }) => {
+                    format!("auth=Bearer {}\x01\x01", token.as_ref())
+                }
                 _ => return Err(crate::Error::UnsupportedAuthMechanism),
             }
             .as_bytes(),
@@ -277,20 +293,20 @@ impl<'x> Credentials<'x> {
     }
 }
 
-impl<'x> From<(&'x str, &'x str)> for Credentials<'x> {
+impl<'x> From<(&'x str, &'x str)> for Credentials<&'x str> {
     fn from(credentials: (&'x str, &'x str)) -> Self {
-        Credentials {
-            username: credentials.0.into(),
-            secret: credentials.1.into(),
+        Credentials::Plain {
+            username: credentials.0,
+            secret: credentials.1,
         }
     }
 }
 
-impl<'x> From<(String, String)> for Credentials<'x> {
+impl From<(String, String)> for Credentials<String> {
     fn from(credentials: (String, String)) -> Self {
-        Credentials {
-            username: credentials.0.into(),
-            secret: credentials.1.into(),
+        Credentials::Plain {
+            username: credentials.0,
+            secret: credentials.1,
         }
     }
 }

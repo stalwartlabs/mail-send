@@ -8,15 +8,15 @@
  * except according to those terms.
  */
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
-use smtp_proto::{EhloResponse, Severity, EXT_START_TLS};
+use smtp_proto::{EhloResponse, EXT_START_TLS};
 use tokio::net::TcpStream;
-use tokio_rustls::{client::TlsStream, TlsConnector};
+use tokio_rustls::client::TlsStream;
 
 use crate::{SmtpClient, SmtpClientBuilder};
 
-use super::{tls::default_tls_config, AssertReply};
+use super::{tls::build_tls_connector, AssertReply};
 
 impl Default for SmtpClientBuilder {
     fn default() -> Self {
@@ -28,13 +28,13 @@ impl SmtpClientBuilder {
     pub fn new() -> Self {
         SmtpClientBuilder {
             timeout: Duration::from_secs(60 * 60),
-            tls: TlsConnector::from(Arc::new(default_tls_config(false))),
+            tls: build_tls_connector(false),
         }
     }
 
     /// Allow invalid TLS certificates
     pub fn allow_invalid_certs(&mut self) {
-        self.tls = TlsConnector::from(Arc::new(default_tls_config(true)));
+        self.tls = build_tls_connector(true);
     }
 
     /// Sets the SMTP connection timeout
@@ -122,17 +122,11 @@ impl SmtpClientBuilder {
             let mut client = if tls_implicit {
                 let mut client = client.into_tls(&self.tls, tls_hostname).await?;
                 // Read greeting
-                client
-                    .read()
-                    .await?
-                    .assert_severity(Severity::PositiveCompletion)?;
+                client.read().await?.assert_positive_completion()?;
                 client
             } else {
                 // Read greeting
-                client
-                    .read()
-                    .await?
-                    .assert_severity(Severity::PositiveCompletion)?;
+                client.read().await?.assert_positive_completion()?;
 
                 // Send EHLO
                 let response = client.ehlo(local_hostname).await?;
