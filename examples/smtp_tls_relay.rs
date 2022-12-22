@@ -25,8 +25,8 @@ async fn main() {
         .binary_attachment("image/png", "kittens.png", [1, 2, 3, 4].as_ref());
 
     // Connect to an SMTP relay server over TLS
-    SmtpClientBuilder::new()
-        .connect_tls("smtp.gmail.com", 465)
+    SmtpClientBuilder::new("smtp.gmail.com", 465)
+        .connect()
         .await
         .unwrap()
         .send(message)

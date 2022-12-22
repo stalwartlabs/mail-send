@@ -48,11 +48,12 @@
 //!
 //!     // Connect to the SMTP submissions port, upgrade to TLS and
 //!     // authenticate using the provided credentials.
-//!     SmtpClientBuilder::new()
-//!         .connect_starttls("smtp.gmail.com", 587)
+//!     SmtpClientBuilder::new("smtp.gmail.com", 587)
+//!         .implicit_tls(false)
+//!         .connect()
 //!         .await
 //!         .unwrap()
-//!         .authenticate(("john", "p4ssw0rd"))
+//!         .authenticate(Credentials::new("john", "p4ssw0rd"))
 //!         .await
 //!         .unwrap()
 //!         .send(message)
@@ -81,8 +82,8 @@
 //!
 //!     // Connect to an SMTP relay server over TLS and
 //!     // sign the message with the provided DKIM signature.
-//!     SmtpClientBuilder::new()
-//!         .connect_tls("smtp.example.com", 465)
+//!     SmtpClientBuilder::new("smtp.example.com", 465)
+//!         .connect()
 //!         .await
 //!         .unwrap()
 //!         .send_signed(message, &pk_rsa, signature_rsa)
@@ -182,9 +183,14 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// SMTP client builder
 #[derive(Clone)]
-pub struct SmtpClientBuilder {
+pub struct SmtpClientBuilder<T: AsRef<str>> {
     pub timeout: Duration,
-    pub tls: TlsConnector,
+    pub tls_connector: TlsConnector,
+    pub tls_hostname: T,
+    pub tls_implicit: bool,
+    pub addr: String,
+    pub is_lmtp: bool,
+    pub local_host: String,
 }
 
 /// SMTP client builder

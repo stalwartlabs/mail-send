@@ -21,18 +21,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin, U> SmtpClient<T, U> {
         loop {
             let br = self.stream.read(&mut buf).await?;
 
-            if br == 0 {
+            if br > 0 {
+                match parser.parse(&mut buf[..br].iter()) {
+                    Ok(reply) => return Ok(reply),
+                    Err(err) => match err {
+                        smtp_proto::Error::NeedsMoreData { .. } => (),
+                        _ => {
+                            return Err(crate::Error::UnparseableReply);
+                        }
+                    },
+                }
+            } else {
                 return Err(crate::Error::UnparseableReply);
-            }
-
-            match parser.parse(&mut buf[..br].iter()) {
-                Ok(reply) => return Ok(reply),
-                Err(err) => match err {
-                    smtp_proto::Error::NeedsMoreData { .. } => (),
-                    _ => {
-                        return Err(crate::Error::UnparseableReply);
-                    }
-                },
             }
         }
     }
@@ -45,29 +45,29 @@ impl<T: AsyncRead + AsyncWrite + Unpin, U> SmtpClient<T, U> {
         'outer: loop {
             let br = self.stream.read(&mut buf).await?;
 
-            if br == 0 {
-                return Err(crate::Error::UnparseableReply);
-            }
+            if br > 0 {
+                let mut iter = buf[..br].iter();
 
-            let mut iter = buf[..br].iter();
-
-            loop {
-                match parser.parse(&mut iter) {
-                    Ok(reply) => {
-                        response.push(reply);
-                        if response.len() != num {
-                            parser.reset();
-                        } else {
-                            break 'outer;
+                loop {
+                    match parser.parse(&mut iter) {
+                        Ok(reply) => {
+                            response.push(reply);
+                            if response.len() != num {
+                                parser.reset();
+                            } else {
+                                break 'outer;
+                            }
                         }
+                        Err(err) => match err {
+                            smtp_proto::Error::NeedsMoreData { .. } => break,
+                            _ => {
+                                return Err(crate::Error::UnparseableReply);
+                            }
+                        },
                     }
-                    Err(err) => match err {
-                        smtp_proto::Error::NeedsMoreData { .. } => break,
-                        _ => {
-                            return Err(crate::Error::UnparseableReply);
-                        }
-                    },
                 }
+            } else {
+                return Err(crate::Error::UnparseableReply);
             }
         }
 
@@ -114,15 +114,16 @@ mod test {
     #[tokio::test]
     async fn smtp_basic() {
         // StartTLS test
-        let client = SmtpClientBuilder::new()
-            .connect_starttls("mail.smtp2go.com", 2525)
+        let client = SmtpClientBuilder::new("mail.smtp2go.com", 2525)
+            .implicit_tls(false)
+            .connect()
             .await
             .unwrap();
         client.quit().await.unwrap();
 
         // Say hello to Google over TLS and quit
-        let client = SmtpClientBuilder::new()
-            .connect_tls("smtp.gmail.com", 465)
+        let client = SmtpClientBuilder::new("smtp.gmail.com", 465)
+            .connect()
             .await
             .unwrap();
         client.quit().await.unwrap();

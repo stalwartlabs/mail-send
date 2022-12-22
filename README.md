@@ -38,11 +38,12 @@ Send a message via an SMTP server that requires authentication:
 
     // Connect to the SMTP submissions port, upgrade to TLS and
     // authenticate using the provided credentials.
-    SmtpClientBuilder::new()
-        .connect_starttls("smtp.gmail.com", 587)
+    SmtpClientBuilder::new("smtp.gmail.com", 587)
+        .implicit_tls(false)
+        .connect()
         .await
         .unwrap()
-        .authenticate(("john", "p4ssw0rd"))
+        .authenticate(Credentials::new("john", "p4ssw0rd"))
         .await
         .unwrap()
         .send(message)
@@ -71,8 +72,8 @@ Sign a message with DKIM and send it via an SMTP relay server:
 
     // Connect to an SMTP relay server over TLS and
     // sign the message with the provided DKIM signature.
-    SmtpClientBuilder::new()
-        .connect_tls("smtp.example.com", 465)
+    SmtpClientBuilder::new("smtp.example.com", 465)
+        .connect()
         .await
         .unwrap()
         .send_signed(message, &pk_rsa, signature_rsa)

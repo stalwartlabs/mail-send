@@ -21,12 +21,12 @@ use crate::{Credentials, SmtpClient};
 impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
     pub async fn authenticate<U>(
         &mut self,
-        credentials: impl Into<Credentials<U>>,
+        credentials: impl AsRef<Credentials<U>>,
     ) -> crate::Result<&mut Self>
     where
         U: AsRef<str> + PartialEq + Eq + Hash,
     {
-        let credentials = credentials.into();
+        let credentials = credentials.as_ref();
         let mut available_mechanisms = match &credentials {
             Credentials::Plain { .. } => AUTH_CRAM_MD5 | AUTH_DIGEST_MD5 | AUTH_LOGIN | AUTH_PLAIN,
             Credentials::OAuthBearer { .. } => AUTH_OAUTHBEARER,
@@ -35,15 +35,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
 
         // Try authenticating from most secure to least secure
         let mut has_err = None;
-        while available_mechanisms != 0 {
+        let mut has_failed = false;
+
+        while available_mechanisms != 0 && !has_failed {
             let mechanism = (63 - available_mechanisms.leading_zeros()) as u64;
             available_mechanisms ^= 1 << mechanism;
-            match self.auth(mechanism, &credentials).await {
+            match self.auth(mechanism, credentials).await {
                 Ok(_) => {
                     return Ok(self);
                 }
                 Err(err) => match err {
                     crate::Error::UnexpectedReply(reply) => {
+                        has_failed = reply.code() == 535;
                         has_err = reply.into();
                     }
                     crate::Error::UnsupportedAuthMechanism => (),
@@ -84,7 +87,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
 
         for _ in 0..3 {
             match reply.code() {
-                [3, 3, 4] => {
+                334 => {
                     reply = self
                         .cmd(
                             format!("{}\r\n", credentials.encode(mechanism, reply.message())?)
@@ -92,7 +95,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
                         )
                         .await?;
                 }
-                [2, 3, 5] => {
+                235 => {
                     return Ok(());
                 }
                 _ => {
@@ -114,6 +117,16 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
     /// Creates a new `Credentials` instance.
     pub fn new(username: T, secret: T) -> Credentials<T> {
         Credentials::Plain { username, secret }
+    }
+
+    /// Creates a new XOAuth2 `Credentials` instance.
+    pub fn new_xoauth2(username: T, secret: T) -> Credentials<T> {
+        Credentials::XOauth2 { username, secret }
+    }
+
+    /// Creates a new OAuthBearer `Credentials` instance.
+    pub fn new_oauth(token: T) -> Credentials<T> {
+        Credentials::OAuthBearer { token }
     }
 
     pub fn encode(&self, mechanism: u64, challenge: &str) -> crate::Result<String> {
@@ -311,6 +324,12 @@ impl From<(String, String)> for Credentials<String> {
     }
 }
 
+impl<U: AsRef<str> + PartialEq + Eq + Hash> AsRef<Credentials<U>> for Credentials<U> {
+    fn as_ref(&self) -> &Credentials<U> {
+        self
+    }
+}
+
 #[cfg(test)]
 mod test {
 
@@ -356,10 +375,10 @@ mod test {
 
         // SASL XOAUTH2
         assert_eq!(
-            Credentials::new(
-                "someuser@example.com",
-                "ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg"
-            )
+            Credentials::XOauth2 {
+                username: "someuser@example.com",
+                secret: "ya29.vF9dft4qmTc2Nvb3RlckBhdHRhdmlzdGEuY29tCg"
+            }
             .encode(AUTH_XOAUTH2, "",)
             .unwrap(),
             concat!(

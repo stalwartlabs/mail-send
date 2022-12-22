@@ -32,7 +32,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
 
     /// Sends a DATA command to the server.
     pub async fn data(&mut self, message: impl AsRef<[u8]>) -> crate::Result<()> {
-        self.cmd(b"DATA\r\n").await?.assert_code([3, 3, 4])?;
+        self.cmd(b"DATA\r\n").await?.assert_code(334)?;
         tokio::time::timeout(self.timeout, async {
             // Write message
             self.write_message(message.as_ref()).await?;
