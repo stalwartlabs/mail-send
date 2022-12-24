@@ -207,8 +207,14 @@ pub enum Credentials<T: AsRef<str> + PartialEq + Eq + Hash> {
     XOauth2 { username: T, secret: T },
 }
 
-pub struct Connected;
-pub struct Disconnected;
+impl Default for Credentials<String> {
+    fn default() -> Self {
+        Credentials::Plain {
+            username: String::new(),
+            secret: String::new(),
+        }
+    }
+}
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

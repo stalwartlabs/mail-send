@@ -125,8 +125,15 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
     }
 
     /// Creates a new OAuthBearer `Credentials` instance.
-    pub fn new_oauth(token: T) -> Credentials<T> {
-        Credentials::OAuthBearer { token }
+    pub fn new_oauth(payload: T) -> Credentials<T> {
+        Credentials::OAuthBearer { token: payload }
+    }
+
+    /// Creates a new OAuthBearer `Credentials` instance from a Bearer token.
+    pub fn new_oauth_from_token(token: T) -> Credentials<String> {
+        Credentials::OAuthBearer {
+            token: format!("auth=Bearer {}\x01\x01", token.as_ref()),
+        }
     }
 
     pub fn encode(&self, mechanism: u64, challenge: &str) -> crate::Result<String> {
@@ -297,7 +304,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                     secret.as_ref()
                 ),
                 (AUTH_OAUTHBEARER, Credentials::OAuthBearer { token }) => {
-                    format!("auth=Bearer {}\x01\x01", token.as_ref())
+                    token.as_ref().to_string()
                 }
                 _ => return Err(crate::Error::UnsupportedAuthMechanism),
             }
