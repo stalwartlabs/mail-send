@@ -18,7 +18,7 @@ use mail_builder::{
     headers::{address, HeaderType},
     MessageBuilder,
 };
-use smtp_proto::{EhloResponse, Parameter, EXT_CHUNKING};
+use smtp_proto::{EhloResponse, EXT_CHUNKING};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::SmtpClient;
@@ -38,7 +38,13 @@ pub struct Address<'x> {
 
 #[derive(Debug, Default)]
 pub struct Parameters<'x> {
-    params: Vec<Parameter<Cow<'x, str>>>,
+    params: Vec<Parameter<'x>>,
+}
+
+#[derive(Debug, Default)]
+pub struct Parameter<'x> {
+    key: Cow<'x, str>,
+    value: Option<Cow<'x, str>>,
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
@@ -215,9 +221,45 @@ impl<'x> Parameters<'x> {
         Self { params: Vec::new() }
     }
 
-    pub fn add(&mut self, param: Parameter<Cow<'x, str>>) -> &mut Self {
-        self.params.push(param);
+    pub fn add(&mut self, param: impl Into<Parameter<'x>>) -> &mut Self {
+        self.params.push(param.into());
         self
+    }
+}
+
+impl<'x> From<&'x str> for Parameter<'x> {
+    fn from(value: &'x str) -> Self {
+        Parameter {
+            key: value.into(),
+            value: None,
+        }
+    }
+}
+
+impl<'x> From<(&'x str, &'x str)> for Parameter<'x> {
+    fn from(value: (&'x str, &'x str)) -> Self {
+        Parameter {
+            key: value.0.into(),
+            value: Some(value.1.into()),
+        }
+    }
+}
+
+impl<'x> From<(String, String)> for Parameter<'x> {
+    fn from(value: (String, String)) -> Self {
+        Parameter {
+            key: value.0.into(),
+            value: Some(value.1.into()),
+        }
+    }
+}
+
+impl<'x> From<String> for Parameter<'x> {
+    fn from(value: String) -> Self {
+        Parameter {
+            key: value.into(),
+            value: None,
+        }
     }
 }
 
@@ -226,10 +268,20 @@ impl<'x> Display for Parameters<'x> {
         if !self.params.is_empty() {
             for param in &self.params {
                 f.write_str(" ")?;
-                param.fmt(f)?;
+                Display::fmt(&param, f)?;
             }
         }
         Ok(())
+    }
+}
+
+impl<'x> Display for Parameter<'x> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(value) = &self.value {
+            write!(f, "{}={}", self.key, value)
+        } else {
+            f.write_str(&self.key)
+        }
     }
 }
 
