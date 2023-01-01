@@ -8,17 +8,20 @@
  * except according to those terms.
  */
 
-use std::time::Duration;
-
 use smtp_proto::{EhloResponse, EXT_START_TLS};
-use tokio::net::TcpStream;
+use std::hash::Hash;
+use std::time::Duration;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpStream,
+};
 use tokio_rustls::client::TlsStream;
 
-use crate::{SmtpClient, SmtpClientBuilder};
+use crate::{Credentials, SmtpClient, SmtpClientBuilder};
 
 use super::{tls::build_tls_connector, AssertReply};
 
-impl<T: AsRef<str>> SmtpClientBuilder<T> {
+impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     pub fn new(hostname: T, port: u16) -> Self {
         SmtpClientBuilder {
             addr: format!("{}:{}", hostname.as_ref(), port),
@@ -31,6 +34,7 @@ impl<T: AsRef<str>> SmtpClientBuilder<T> {
                 .to_str()
                 .unwrap_or("[127.0.0.1]")
                 .to_string(),
+            credentials: None,
         }
     }
 
@@ -57,6 +61,12 @@ impl<T: AsRef<str>> SmtpClientBuilder<T> {
         self
     }
 
+    /// Sets the authentication credentials
+    pub fn credentials(mut self, credentials: impl Into<Credentials<T>>) -> Self {
+        self.credentials = Some(credentials.into());
+        self
+    }
+
     /// Sets the SMTP connection timeout
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
@@ -64,14 +74,11 @@ impl<T: AsRef<str>> SmtpClientBuilder<T> {
     }
 
     /// Connect over TLS
-    pub async fn connect(
-        &self,
-    ) -> crate::Result<SmtpClient<TlsStream<TcpStream>, EhloResponse<String>>> {
+    pub async fn connect(&self) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
         tokio::time::timeout(self.timeout, async {
             let mut client = SmtpClient {
                 stream: TcpStream::connect(&self.addr).await?,
                 timeout: self.timeout,
-                capabilities: (),
             };
 
             let mut client = if self.tls_implicit {
@@ -100,24 +107,25 @@ impl<T: AsRef<str>> SmtpClientBuilder<T> {
                 }
             };
 
-            Ok(SmtpClient {
-                capabilities: if !self.is_lmtp {
-                    client.ehlo(&self.local_host).await?
-                } else {
-                    client.lhlo(&self.local_host).await?
-                },
-                stream: client.stream,
-                timeout: client.timeout,
-            })
+            #[cfg(not(feature = "skip-ehlo"))]
+            {
+                // Obtain capabilities
+                let capabilities = client.capabilities(&self.local_host, self.is_lmtp).await?;
+
+                // Authenticate
+                if let Some(credentials) = &self.credentials {
+                    client.authenticate(&credentials, &capabilities).await?;
+                }
+            }
+
+            Ok(client)
         })
         .await
         .map_err(|_| crate::Error::Timeout)?
     }
 
     /// Connect over clear text (should not be used)
-    pub async fn connect_plain(
-        &self,
-    ) -> crate::Result<SmtpClient<TcpStream, EhloResponse<String>>> {
+    pub async fn connect_plain(&self) -> crate::Result<SmtpClient<TcpStream>> {
         let mut client = SmtpClient {
             stream: tokio::time::timeout(self.timeout, async {
                 TcpStream::connect(&self.addr).await
@@ -125,16 +133,33 @@ impl<T: AsRef<str>> SmtpClientBuilder<T> {
             .await
             .map_err(|_| crate::Error::Timeout)??,
             timeout: self.timeout,
-            capabilities: (),
         };
-        Ok(SmtpClient {
-            capabilities: if !self.is_lmtp {
-                client.ehlo(&self.local_host).await?
-            } else {
-                client.lhlo(&self.local_host).await?
-            },
-            stream: client.stream,
-            timeout: client.timeout,
-        })
+
+        #[cfg(not(feature = "skip-ehlo"))]
+        {
+            // Obtain capabilities
+            let capabilities = client.capabilities(&self.local_host, self.is_lmtp).await?;
+
+            // Authenticate
+            if let Some(credentials) = &self.credentials {
+                client.authenticate(&credentials, &capabilities).await?;
+            }
+        }
+
+        Ok(client)
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
+    pub async fn capabilities(
+        &mut self,
+        local_host: &str,
+        is_lmtp: bool,
+    ) -> crate::Result<EhloResponse<String>> {
+        if !is_lmtp {
+            self.ehlo(local_host).await
+        } else {
+            self.lhlo(local_host).await
+        }
     }
 }

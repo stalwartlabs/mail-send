@@ -18,7 +18,6 @@ use mail_builder::{
     headers::{address, HeaderType},
     MessageBuilder,
 };
-use smtp_proto::{EhloResponse, EXT_CHUNKING};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::SmtpClient;
@@ -47,7 +46,7 @@ pub struct Parameter<'x> {
     value: Option<Cow<'x, str>>,
 }
 
-impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
+impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     /// Sends a message to the server.
     pub async fn send<'x>(&mut self, message: impl IntoMessage<'x>) -> crate::Result<()> {
         // Send mail-from
@@ -64,11 +63,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
         }
 
         // Send message
-        if self.capabilities.has_capability(EXT_CHUNKING)
-            && self.bdat(message.body.as_ref()).await.is_ok()
-        {
-            return Ok(());
-        }
         self.data(message.body.as_ref()).await
     }
 
@@ -104,11 +98,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
         signed_message.extend_from_slice(message.body.as_ref());
 
         // Send message
-        if self.capabilities.has_capability(EXT_CHUNKING)
-            && self.bdat(&signed_message).await.is_ok()
-        {
-            return Ok(());
-        }
         self.data(&signed_message).await
     }
 

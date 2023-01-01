@@ -21,13 +21,13 @@ use crate::SmtpClient;
 
 use super::AssertReply;
 
-impl<U> SmtpClient<TcpStream, U> {
+impl SmtpClient<TcpStream> {
     /// Upgrade the connection to TLS.
     pub async fn start_tls(
         mut self,
         tls_connector: &TlsConnector,
         hostname: &str,
-    ) -> crate::Result<SmtpClient<TlsStream<TcpStream>, U>> {
+    ) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
         // Send STARTTLS command
         self.cmd(b"STARTTLS\r\n")
             .await?
@@ -40,7 +40,7 @@ impl<U> SmtpClient<TcpStream, U> {
         self,
         tls_connector: &TlsConnector,
         hostname: &str,
-    ) -> crate::Result<SmtpClient<TlsStream<TcpStream>, U>> {
+    ) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
         tokio::time::timeout(self.timeout, async {
             Ok(SmtpClient {
                 stream: tls_connector
@@ -50,7 +50,6 @@ impl<U> SmtpClient<TcpStream, U> {
                     )
                     .await?,
                 timeout: self.timeout,
-                capabilities: self.capabilities,
             })
         })
         .await

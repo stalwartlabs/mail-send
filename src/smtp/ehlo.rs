@@ -16,7 +16,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use crate::SmtpClient;
 
-impl<T: AsyncRead + AsyncWrite + Unpin, U> SmtpClient<T, U> {
+impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     /// Sends a EHLO command to the server.
     pub async fn ehlo(&mut self, hostname: &str) -> crate::Result<EhloResponse<String>> {
         tokio::time::timeout(self.timeout, async {

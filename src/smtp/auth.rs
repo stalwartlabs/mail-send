@@ -18,20 +18,22 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{Credentials, SmtpClient};
 
-impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
+impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     pub async fn authenticate<U>(
         &mut self,
         credentials: impl AsRef<Credentials<U>>,
+        capabilities: impl AsRef<EhloResponse<String>>,
     ) -> crate::Result<&mut Self>
     where
         U: AsRef<str> + PartialEq + Eq + Hash,
     {
         let credentials = credentials.as_ref();
+        let capabilities = capabilities.as_ref();
         let mut available_mechanisms = match &credentials {
             Credentials::Plain { .. } => AUTH_CRAM_MD5 | AUTH_DIGEST_MD5 | AUTH_LOGIN | AUTH_PLAIN,
             Credentials::OAuthBearer { .. } => AUTH_OAUTHBEARER,
             Credentials::XOauth2 { .. } => AUTH_XOAUTH2,
-        } & self.capabilities.auth_mechanisms;
+        } & capabilities.auth_mechanisms;
 
         // Try authenticating from most secure to least secure
         let mut has_err = None;

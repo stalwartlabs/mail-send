@@ -50,10 +50,8 @@
 //!     // authenticate using the provided credentials.
 //!     SmtpClientBuilder::new("smtp.gmail.com", 587)
 //!         .implicit_tls(false)
+//!         .credentials(("john", "p4ssw0rd"))
 //!         .connect()
-//!         .await
-//!         .unwrap()
-//!         .authenticate(Credentials::new("john", "p4ssw0rd"))
 //!         .await
 //!         .unwrap()
 //!         .send(message)
@@ -183,21 +181,21 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// SMTP client builder
 #[derive(Clone)]
-pub struct SmtpClientBuilder<T: AsRef<str>> {
+pub struct SmtpClientBuilder<T: AsRef<str> + PartialEq + Eq + Hash> {
     pub timeout: Duration,
     pub tls_connector: TlsConnector,
     pub tls_hostname: T,
     pub tls_implicit: bool,
+    pub credentials: Option<Credentials<T>>,
     pub addr: String,
     pub is_lmtp: bool,
     pub local_host: String,
 }
 
 /// SMTP client builder
-pub struct SmtpClient<T: AsyncRead + AsyncWrite, U> {
+pub struct SmtpClient<T: AsyncRead + AsyncWrite> {
     stream: T,
-    timeout: Duration,
-    capabilities: U,
+    pub timeout: Duration,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -223,8 +221,8 @@ impl Display for Error {
             Error::Base64(e) => write!(f, "Base64 decode error: {}", e),
             Error::Auth(e) => write!(f, "SMTP authentication error: {}", e),
             Error::UnparseableReply => write!(f, "Unparseable SMTP reply"),
-            Error::UnexpectedReply(e) => e.fmt(f),
-            Error::AuthenticationFailed(e) => e.fmt(f),
+            Error::UnexpectedReply(e) => write!(f, "Unexpected reply: {}", e),
+            Error::AuthenticationFailed(e) => write!(f, "Authentication failed: {}", e),
             Error::InvalidTLSName => write!(f, "Invalid TLS name provided"),
             Error::MissingCredentials => write!(f, "Missing authentication credentials"),
             Error::MissingMailFrom => write!(f, "Missing message sender"),

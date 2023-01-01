@@ -8,13 +8,21 @@
  * except according to those terms.
  */
 
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::Duration,
+};
+
 use smtp_proto::{response::parser::ResponseReceiver, Response};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    net::{TcpSocket, TcpStream},
+};
 
 use crate::SmtpClient;
 
-impl<T: AsyncRead + AsyncWrite + Unpin, U> SmtpClient<T, U> {
-    pub(crate) async fn read(&mut self) -> crate::Result<Response<String>> {
+impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
+    pub async fn read(&mut self) -> crate::Result<Response<String>> {
         let mut buf = vec![0u8; 1024];
         let mut parser = ResponseReceiver::default();
 
@@ -102,11 +110,47 @@ impl<T: AsyncRead + AsyncWrite + Unpin, U> SmtpClient<T, U> {
     }
 }
 
+impl SmtpClient<TcpStream> {
+    /// Connects to a remote host address
+    pub async fn connect(remote_addr: SocketAddr, timeout: Duration) -> crate::Result<Self> {
+        tokio::time::timeout(timeout, async {
+            Ok(SmtpClient {
+                stream: TcpStream::connect(remote_addr).await?,
+                timeout,
+            })
+        })
+        .await
+        .map_err(|_| crate::Error::Timeout)?
+    }
+
+    /// Connects to a remote host address using the provided local IP
+    pub async fn connect_using(
+        local_ip: IpAddr,
+        remote_addr: SocketAddr,
+        timeout: Duration,
+    ) -> crate::Result<Self> {
+        tokio::time::timeout(timeout, async {
+            let socket = if local_ip.is_ipv4() {
+                TcpSocket::new_v4()?
+            } else {
+                TcpSocket::new_v6()?
+            };
+            socket.bind(SocketAddr::new(local_ip, 0))?;
+
+            Ok(SmtpClient {
+                stream: socket.connect(remote_addr).await?,
+                timeout,
+            })
+        })
+        .await
+        .map_err(|_| crate::Error::Timeout)?
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::time::Duration;
 
-    use smtp_proto::EhloResponse;
     use tokio::io::{AsyncRead, AsyncWrite};
 
     use crate::{SmtpClient, SmtpClientBuilder};
@@ -186,7 +230,6 @@ mod test {
             let mut client = SmtpClient {
                 stream: AsyncBufWriter::default(),
                 timeout: Duration::from_secs(30),
-                capabilities: EhloResponse::default(),
             };
             client.write_message(test.as_bytes()).await.unwrap();
             assert_eq!(String::from_utf8(client.stream.buf).unwrap(), result);

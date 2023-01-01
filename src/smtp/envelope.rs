@@ -8,14 +8,13 @@
  * except according to those terms.
  */
 
-use smtp_proto::EhloResponse;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::SmtpClient;
 
 use super::{message::Parameters, AssertReply};
 
-impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T, EhloResponse<String>> {
+impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     /// Sends a MAIL FROM command to the server.
     pub async fn mail_from(&mut self, addr: &str, params: &Parameters<'_>) -> crate::Result<()> {
         self.cmd(format!("MAIL FROM:<{}>{}\r\n", addr, params).as_bytes())

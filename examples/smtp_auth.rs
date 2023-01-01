@@ -10,7 +10,7 @@
  */
 
 use mail_builder::MessageBuilder;
-use mail_send::{Credentials, SmtpClientBuilder};
+use mail_send::SmtpClientBuilder;
 
 #[tokio::main]
 async fn main() {
@@ -31,10 +31,8 @@ async fn main() {
     // authenticate using the provided credentials.
     SmtpClientBuilder::new("smtp.gmail.com", 587)
         .implicit_tls(false)
+        .credentials(("john", "p4ssw0rd"))
         .connect()
-        .await
-        .unwrap()
-        .authenticate(Credentials::new("john", "p4ssw0rd"))
         .await
         .unwrap()
         .send(message)

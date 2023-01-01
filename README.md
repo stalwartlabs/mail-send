@@ -40,10 +40,8 @@ Send a message via an SMTP server that requires authentication:
     // authenticate using the provided credentials.
     SmtpClientBuilder::new("smtp.gmail.com", 587)
         .implicit_tls(false)
+        .credentials(("john", "p4ssw0rd"))
         .connect()
-        .await
-        .unwrap()
-        .authenticate(Credentials::new("john", "p4ssw0rd"))
         .await
         .unwrap()
         .send(message)
