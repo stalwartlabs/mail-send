@@ -31,7 +31,7 @@ gethostname = { version = "0.4"}
 tokio = { version = "1.16", features = ["net", "io-util", "time", "rt-multi-thread", "macros"] }
 
 [features]
-default = [ "digest-md5", "cram-md5", "builder", "dkim" ]
+default = ["digest-md5", "cram-md5", "builder", "dkim"]
 skip-ehlo = []
 builder = ["mail-builder"]
 dkim = ["mail-auth"]

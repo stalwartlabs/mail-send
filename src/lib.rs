@@ -194,7 +194,7 @@ pub struct SmtpClientBuilder<T: AsRef<str> + PartialEq + Eq + Hash> {
 
 /// SMTP client builder
 pub struct SmtpClient<T: AsyncRead + AsyncWrite> {
-    stream: T,
+    pub stream: T,
     pub timeout: Duration,
 }
 

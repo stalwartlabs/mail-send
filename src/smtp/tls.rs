@@ -12,7 +12,7 @@ use std::{convert::TryFrom, sync::Arc};
 
 use rustls::{
     client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier},
-    Certificate, ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName,
+    Certificate, ClientConfig, ClientConnection, OwnedTrustAnchor, RootCertStore, ServerName,
 };
 use tokio::net::TcpStream;
 use tokio_rustls::{client::TlsStream, TlsConnector};
@@ -54,6 +54,12 @@ impl SmtpClient<TcpStream> {
         })
         .await
         .map_err(|_| crate::Error::Timeout)?
+    }
+}
+
+impl SmtpClient<TlsStream<TcpStream>> {
+    pub fn tls_connection(&self) -> &ClientConnection {
+        self.stream.get_ref().1
     }
 }
 

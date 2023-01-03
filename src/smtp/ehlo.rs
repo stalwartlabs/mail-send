@@ -41,7 +41,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         .map_err(|_| crate::Error::Timeout)?
     }
 
-    async fn read_ehlo(&mut self) -> crate::Result<EhloResponse<String>> {
+    pub async fn read_ehlo(&mut self) -> crate::Result<EhloResponse<String>> {
         let mut buf = vec![0u8; 1024];
         let mut buf_concat = Vec::with_capacity(0);
 
