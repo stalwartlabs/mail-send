@@ -68,11 +68,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
 
     /// Sends a message to the server.
     #[cfg(feature = "dkim")]
-    pub async fn send_signed<'x>(
+    pub async fn send_signed<'x, V: mail_auth::common::crypto::SigningKey>(
         &mut self,
         message: impl IntoMessage<'x>,
-        with_key: &impl mail_auth::common::crypto::SigningKey,
-        signature: mail_auth::dkim::Signature<'_>,
+        signer: &mail_auth::dkim::DkimSigner<'x, V, mail_auth::dkim::Done>,
     ) -> crate::Result<()> {
         // Send mail-from
 
@@ -90,8 +89,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         }
 
         // Sign message
-        let signature = signature
-            .sign(message.body.as_ref(), with_key)
+        let signature = signer
+            .sign(message.body.as_ref())
             .map_err(|_| crate::Error::MissingCredentials)?;
         let mut signed_message = Vec::with_capacity(message.body.len() + 64);
         signature.write_header(&mut signed_message);
@@ -101,7 +100,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         self.data(&signed_message).await
     }
 
-    pub(crate) async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
+    pub async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
         // Transparency procedure
         #[derive(Debug)]
         enum State {

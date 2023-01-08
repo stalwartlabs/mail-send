@@ -10,7 +10,7 @@
  */
 
 pub use mail_auth::sha2::Sha256;
-use mail_auth::{common::crypto::RsaKey, dkim::Signature};
+use mail_auth::{common::crypto::RsaKey, dkim::DkimSigner};
 use mail_builder::MessageBuilder;
 use mail_send::SmtpClientBuilder;
 
@@ -44,10 +44,10 @@ async fn main() {
 
     // Sign an e-mail message using RSA-SHA256
     let pk_rsa = RsaKey::<Sha256>::from_pkcs1_pem(TEST_KEY).unwrap();
-    let signature_rsa = Signature::new()
-        .headers(["From", "To", "Subject"])
+    let signer = DkimSigner::from_key(pk_rsa)
         .domain("example.com")
         .selector("default")
+        .headers(["From", "To", "Subject"])
         .expiration(60 * 60 * 7); // Number of seconds before this signature expires (optional)
 
     // Connect to an SMTP relay server over TLS.
@@ -56,7 +56,7 @@ async fn main() {
         .connect()
         .await
         .unwrap()
-        .send_signed(message, &pk_rsa, signature_rsa)
+        .send_signed(message, &signer)
         .await
         .unwrap();
 }

@@ -62,19 +62,19 @@ Sign a message with DKIM and send it via an SMTP relay server:
 
     // Sign an e-mail message using RSA-SHA256
     let pk_rsa = RsaKey::<Sha256>::from_pkcs1_pem(TEST_KEY).unwrap();
-    let signature_rsa = Signature::new()
-        .headers(["From", "To", "Subject"])
+    let signer = DkimSigner::from_key(pk_rsa)
         .domain("example.com")
         .selector("default")
+        .headers(["From", "To", "Subject"])
         .expiration(60 * 60 * 7); // Number of seconds before this signature expires (optional)
 
-    // Connect to an SMTP relay server over TLS and
-    // sign the message with the provided DKIM signature.
-    SmtpClientBuilder::new("smtp.example.com", 465)
+    // Connect to an SMTP relay server over TLS.
+    // Signs each message with the configured DKIM signer.
+    SmtpClientBuilder::new("smtp.gmail.com", 465)
         .connect()
         .await
         .unwrap()
-        .send_signed(message, &pk_rsa, signature_rsa)
+        .send_signed(message, &signer)
         .await
         .unwrap();
 ```
