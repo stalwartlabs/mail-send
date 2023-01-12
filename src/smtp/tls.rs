@@ -8,7 +8,7 @@
  * except according to those terms.
  */
 
-use std::{convert::TryFrom, sync::Arc};
+use std::{convert::TryFrom, io, sync::Arc};
 
 use rustls::{
     client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier},
@@ -17,7 +17,7 @@ use rustls::{
 use tokio::net::TcpStream;
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
-use crate::SmtpClient;
+use crate::{Error, SmtpClient};
 
 use super::AssertReply;
 
@@ -48,7 +48,18 @@ impl SmtpClient<TcpStream> {
                         ServerName::try_from(hostname).map_err(|_| crate::Error::InvalidTLSName)?,
                         self.stream,
                     )
-                    .await?,
+                    .await
+                    .map_err(|err| {
+                        let kind = err.kind();
+                        if let Some(inner) = err.into_inner() {
+                            match inner.downcast::<rustls::Error>() {
+                                Ok(error) => Error::Tls(error),
+                                Err(error) => Error::Io(io::Error::new(kind, error)),
+                            }
+                        } else {
+                            Error::Io(io::Error::new(kind, "Unspecified"))
+                        }
+                    })?,
                 timeout: self.timeout,
             })
         })

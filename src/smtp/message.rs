@@ -71,7 +71,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     pub async fn send_signed<'x, V: mail_auth::common::crypto::SigningKey>(
         &mut self,
         message: impl IntoMessage<'x>,
-        signer: &mail_auth::dkim::DkimSigner<'x, V, mail_auth::dkim::Done>,
+        signer: &mail_auth::dkim::DkimSigner<V, mail_auth::dkim::Done>,
     ) -> crate::Result<()> {
         // Send mail-from
 

@@ -9,8 +9,10 @@
  * except according to those terms.
  */
 
-pub use mail_auth::sha2::Sha256;
-use mail_auth::{common::crypto::RsaKey, dkim::DkimSigner};
+use mail_auth::{
+    common::crypto::{RsaKey, Sha256},
+    dkim::DkimSigner,
+};
 use mail_builder::MessageBuilder;
 use mail_send::SmtpClientBuilder;
 

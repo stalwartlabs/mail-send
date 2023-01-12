@@ -140,6 +140,9 @@ pub enum Error {
     /// I/O error
     Io(std::io::Error),
 
+    /// TLS error
+    Tls(Box<rustls::Error>),
+
     /// Base64 decode error
     Base64(base64::DecodeError),
 
@@ -218,6 +221,7 @@ impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Io(e) => write!(f, "I/O error: {}", e),
+            Error::Tls(e) => write!(f, "TLS error: {}", e),
             Error::Base64(e) => write!(f, "Base64 decode error: {}", e),
             Error::Auth(e) => write!(f, "SMTP authentication error: {}", e),
             Error::UnparseableReply => write!(f, "Unparseable SMTP reply"),
