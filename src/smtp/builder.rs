@@ -74,6 +74,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     }
 
     /// Connect over TLS
+    #[allow(unused_mut)]
     pub async fn connect(&self) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
         tokio::time::timeout(self.timeout, async {
             let mut client = SmtpClient {
@@ -125,6 +126,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     }
 
     /// Connect over clear text (should not be used)
+    #[allow(unused_mut)]
     pub async fn connect_plain(&self) -> crate::Result<SmtpClient<TcpStream>> {
         let mut client = SmtpClient {
             stream: tokio::time::timeout(self.timeout, async {

@@ -40,8 +40,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         let mut has_failed = false;
 
         while available_mechanisms != 0 && !has_failed {
-            let mechanism = (63 - available_mechanisms.leading_zeros()) as u64;
-            available_mechanisms ^= 1 << mechanism;
+            let mechanism = 1 << ((63 - available_mechanisms.leading_zeros()) as u64);
+            available_mechanisms ^= mechanism;
             match self.auth(mechanism, credentials).await {
                 Ok(_) => {
                     return Ok(self);
