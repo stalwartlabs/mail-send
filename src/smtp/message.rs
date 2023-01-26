@@ -130,7 +130,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         if let Some(bytes) = message.get(last_pos..) {
             self.stream.write_all(bytes).await?;
         }
-        self.stream.write_all("\r\n.\r\n".as_bytes()).await
+        self.stream.write_all("\r\n.\r\n".as_bytes()).await?;
+        self.stream.flush().await
     }
 }
 

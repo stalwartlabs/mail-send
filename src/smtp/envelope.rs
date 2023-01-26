@@ -31,7 +31,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
 
     /// Sends a DATA command to the server.
     pub async fn data(&mut self, message: impl AsRef<[u8]>) -> crate::Result<()> {
-        self.cmd(b"DATA\r\n").await?.assert_code(334)?;
+        self.cmd(b"DATA\r\n").await?.assert_code(354)?;
         tokio::time::timeout(self.timeout, async {
             // Write message
             self.write_message(message.as_ref()).await?;
@@ -50,6 +50,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
                 .write_all(format!("BDAT {} LAST\r\n", message.len()).as_bytes())
                 .await?;
             self.stream.write_all(message).await?;
+            self.stream.flush().await?;
             self.read().await
         })
         .await

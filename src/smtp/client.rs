@@ -45,7 +45,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         }
     }
 
-    pub(crate) async fn read_many(&mut self, num: usize) -> crate::Result<Vec<Response<String>>> {
+    pub async fn read_many(&mut self, num: usize) -> crate::Result<Vec<Response<String>>> {
         let mut buf = vec![0u8; 1024];
         let mut response = Vec::with_capacity(num);
         let mut parser = ResponseReceiver::default();
@@ -86,6 +86,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     pub async fn cmd(&mut self, cmd: impl AsRef<[u8]>) -> crate::Result<Response<String>> {
         tokio::time::timeout(self.timeout, async {
             self.stream.write_all(cmd.as_ref()).await?;
+            self.stream.flush().await?;
             self.read().await
         })
         .await
@@ -103,6 +104,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
                 self.stream.write_all(cmd.as_ref()).await?;
                 num_replies += 1;
             }
+            self.stream.flush().await?;
             self.read_many(num_replies).await
         })
         .await

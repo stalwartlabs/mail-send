@@ -23,6 +23,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
             self.stream
                 .write_all(format!("EHLO {}\r\n", hostname).as_bytes())
                 .await?;
+            self.stream.flush().await?;
             self.read_ehlo().await
         })
         .await
@@ -35,6 +36,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
             self.stream
                 .write_all(format!("LHLO {}\r\n", hostname).as_bytes())
                 .await?;
+            self.stream.flush().await?;
             self.read_ehlo().await
         })
         .await

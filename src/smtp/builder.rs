@@ -39,8 +39,9 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     }
 
     /// Allow invalid TLS certificates
-    pub fn allow_invalid_certs(mut self) {
+    pub fn allow_invalid_certs(mut self) -> Self {
         self.tls_connector = build_tls_connector(true);
+        self
     }
 
     /// Start connection in TLS or upgrade with STARTTLS
