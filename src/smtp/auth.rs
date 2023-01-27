@@ -214,25 +214,22 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                     let (digest_uri, realm, realm_response) =
                         if let Some(realm) = values.get("realm") {
                             (
-                                format!("smtp/{}", realm),
+                                format!("smtp/{realm}"),
                                 realm.as_str(),
-                                format!(",realm=\"{}\"", realm),
+                                format!(",realm=\"{realm}\""),
                             )
                         } else {
                             ("smtp/localhost".to_string(), "", "".to_string())
                         };
 
                     let credentials =
-                        md5::compute(format!("{}:{}:{}", username, realm, secret).as_bytes());
+                        md5::compute(format!("{username}:{realm}:{secret}").as_bytes());
 
                     let a2 = md5::compute(
                         if values.get("qpop").map_or(false, |v| v == "auth") {
-                            format!("AUTHENTICATE:{}", digest_uri)
+                            format!("AUTHENTICATE:{digest_uri}")
                         } else {
-                            format!(
-                                "AUTHENTICATE:{}:00000000000000000000000000000000",
-                                digest_uri
-                            )
+                            format!("AUTHENTICATE:{digest_uri}:00000000000000000000000000000000")
                         }
                         .as_bytes(),
                     );
@@ -265,11 +262,8 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                         cnonce,
                         digest_uri,
                         md5::compute(
-                            format!(
-                                "{:x}:{}:00000001:{}:{}:{:x}",
-                                credentials, nonce, cnonce, qop, a2
-                            )
-                            .as_bytes()
+                            format!("{credentials:x}:{nonce}:00000001:{cnonce}:{qop}:{a2:x}")
+                                .as_bytes()
                         ),
                         qop
                     )

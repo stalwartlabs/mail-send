@@ -17,14 +17,14 @@ use super::{message::Parameters, AssertReply};
 impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     /// Sends a MAIL FROM command to the server.
     pub async fn mail_from(&mut self, addr: &str, params: &Parameters<'_>) -> crate::Result<()> {
-        self.cmd(format!("MAIL FROM:<{}>{}\r\n", addr, params).as_bytes())
+        self.cmd(format!("MAIL FROM:<{addr}>{params}\r\n").as_bytes())
             .await?
             .assert_positive_completion()
     }
 
     /// Sends a RCPT TO command to the server.
     pub async fn rcpt_to(&mut self, addr: &str, params: &Parameters<'_>) -> crate::Result<()> {
-        self.cmd(format!("RCPT TO:<{}>{}\r\n", addr, params).as_bytes())
+        self.cmd(format!("RCPT TO:<{addr}>{params}\r\n").as_bytes())
             .await?
             .assert_positive_completion()
     }

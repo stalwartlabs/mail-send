@@ -71,7 +71,7 @@
 //!         .binary_attachment("image/png", "pretzels.png", [1, 2, 3, 4].as_ref());
 //!
 //!     // Sign an e-mail message using RSA-SHA256
-//!     let pk_rsa = RsaKey::<Sha256>::from_pkcs1_pem(TEST_KEY).unwrap();
+//!     let pk_rsa = RsaKey::<Sha256>::from_rsa_pem(TEST_KEY).unwrap();
 //!     let signer = DkimSigner::from_key(pk_rsa)
 //!         .domain("example.com")
 //!         .selector("default")
@@ -220,13 +220,13 @@ impl Default for Credentials<String> {
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::Io(e) => write!(f, "I/O error: {}", e),
-            Error::Tls(e) => write!(f, "TLS error: {}", e),
-            Error::Base64(e) => write!(f, "Base64 decode error: {}", e),
-            Error::Auth(e) => write!(f, "SMTP authentication error: {}", e),
+            Error::Io(e) => write!(f, "I/O error: {e}"),
+            Error::Tls(e) => write!(f, "TLS error: {e}"),
+            Error::Base64(e) => write!(f, "Base64 decode error: {e}"),
+            Error::Auth(e) => write!(f, "SMTP authentication error: {e}"),
             Error::UnparseableReply => write!(f, "Unparseable SMTP reply"),
-            Error::UnexpectedReply(e) => write!(f, "Unexpected reply: {}", e),
-            Error::AuthenticationFailed(e) => write!(f, "Authentication failed: {}", e),
+            Error::UnexpectedReply(e) => write!(f, "Unexpected reply: {e}"),
+            Error::AuthenticationFailed(e) => write!(f, "Authentication failed: {e}"),
             Error::InvalidTLSName => write!(f, "Invalid TLS name provided"),
             Error::MissingCredentials => write!(f, "Missing authentication credentials"),
             Error::MissingMailFrom => write!(f, "Missing message sender"),

@@ -21,7 +21,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     pub async fn ehlo(&mut self, hostname: &str) -> crate::Result<EhloResponse<String>> {
         tokio::time::timeout(self.timeout, async {
             self.stream
-                .write_all(format!("EHLO {}\r\n", hostname).as_bytes())
+                .write_all(format!("EHLO {hostname}\r\n").as_bytes())
                 .await?;
             self.stream.flush().await?;
             self.read_ehlo().await
@@ -34,7 +34,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     pub async fn lhlo(&mut self, hostname: &str) -> crate::Result<EhloResponse<String>> {
         tokio::time::timeout(self.timeout, async {
             self.stream
-                .write_all(format!("LHLO {}\r\n", hostname).as_bytes())
+                .write_all(format!("LHLO {hostname}\r\n").as_bytes())
                 .await?;
             self.stream.flush().await?;
             self.read_ehlo().await

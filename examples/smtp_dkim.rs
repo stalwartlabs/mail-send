@@ -45,7 +45,7 @@ async fn main() {
         .binary_attachment("image/png", "pretzels.png", [1, 2, 3, 4].as_ref());
 
     // Sign an e-mail message using RSA-SHA256
-    let pk_rsa = RsaKey::<Sha256>::from_pkcs1_pem(TEST_KEY).unwrap();
+    let pk_rsa = RsaKey::<Sha256>::from_rsa_pem(TEST_KEY).unwrap();
     let signer = DkimSigner::from_key(pk_rsa)
         .domain("example.com")
         .selector("default")
