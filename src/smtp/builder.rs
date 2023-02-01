@@ -138,6 +138,9 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
             timeout: self.timeout,
         };
 
+        // Read greeting
+        client.read().await?.assert_positive_completion()?;
+
         #[cfg(not(feature = "skip-ehlo"))]
         {
             // Obtain capabilities
