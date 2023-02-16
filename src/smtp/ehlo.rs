@@ -30,7 +30,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         .map_err(|_| crate::Error::Timeout)?
     }
 
-    /// Sends a EHLO command to the server.
+    /// Sends a LHLO command to the server.
     pub async fn lhlo(&mut self, hostname: &str) -> crate::Result<EhloResponse<String>> {
         tokio::time::timeout(self.timeout, async {
             self.stream
