@@ -9,7 +9,7 @@
  */
 
 use smtp_proto::{
-    response::parser::{ResponseReceiver, MAX_REPONSE_LENGTH},
+    response::parser::{ResponseReceiver, MAX_RESPONSE_LENGTH},
     EhloResponse,
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -55,7 +55,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
             }
             let mut iter = if buf_concat.is_empty() {
                 buf[..br].iter()
-            } else if br + buf_concat.len() < MAX_REPONSE_LENGTH {
+            } else if br + buf_concat.len() < MAX_RESPONSE_LENGTH {
                 buf_concat.extend_from_slice(&buf[..br]);
                 buf_concat.iter()
             } else {
