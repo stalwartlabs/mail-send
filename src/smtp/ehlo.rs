@@ -67,7 +67,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
                 Err(err) => match err {
                     smtp_proto::Error::NeedsMoreData { .. } => {
                         if buf_concat.is_empty() {
-                            buf_concat = buf.to_vec();
+                            buf_concat = buf[..br].to_vec();
                         }
                     }
                     smtp_proto::Error::InvalidResponse { code } => {
@@ -77,7 +77,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
                             }
                             Err(smtp_proto::Error::NeedsMoreData { .. }) => {
                                 if buf_concat.is_empty() {
-                                    buf_concat = buf.to_vec();
+                                    buf_concat = buf[..br].to_vec();
                                 }
                             }
                             Err(_) => return Err(crate::Error::UnparseableReply),
