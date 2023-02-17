@@ -1,3 +1,12 @@
+mail-send 0.3.2
+================================
+- Fix: Extend buffer from bytes read while reading EHLO (#12).
+- Add an impl std::error::Error for mail_send::Error (#11)
+
+mail-send 0.3.1
+================================
+- Fix: plain text connect issues (#10).
+
 mail-send 0.3.0
 ================================
 - Use of generics on TCP streams instead of static dispatch with enums.
