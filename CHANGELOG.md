@@ -1,3 +1,7 @@
+mail-send 0.3.3
+================================
+- Bump up rustls to 0.21
+
 mail-send 0.3.2
 ================================
 - Fix: Extend buffer from bytes read while reading EHLO (#12).
