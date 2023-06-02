@@ -1,6 +1,10 @@
+mail-send 0.4.0
+================================
+- Bump `mail-builder` dependency to 0.3
+
 mail-send 0.3.3
 ================================
-- Bump up rustls to 0.21
+- Bump `rustls` dependency to 0.21
 
 mail-send 0.3.2
 ================================
@@ -14,7 +18,7 @@ mail-send 0.3.1
 mail-send 0.3.0
 ================================
 - Use of generics on TCP streams instead of static dispatch with enums.
-- Switch to ``mail-auth`` for DKIM authentication.
+- Switch to `mail-auth` for DKIM authentication.
 
 mail-send 0.2.3
 ================================
