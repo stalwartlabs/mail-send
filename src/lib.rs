@@ -68,7 +68,7 @@
 //!         .to("jane@example.com")
 //!         .subject("Howdy!")
 //!         .text_body("These pretzels are making me thirsty.")
-//!         .binary_attachment("image/png", "pretzels.png", [1, 2, 3, 4].as_ref());
+//!         .attachment("image/png", "pretzels.png", [1, 2, 3, 4].as_ref());
 //!
 //!     // Sign an e-mail message using RSA-SHA256
 //!     let pk_rsa = RsaKey::<Sha256>::from_rsa_pem(TEST_KEY).unwrap();

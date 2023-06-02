@@ -22,7 +22,7 @@ async fn main() {
         .to("jane@example.com")
         .subject("Hello, world!")
         .html_body("<h1>Hello, world!</h1>")
-        .binary_attachment("image/png", "kittens.png", [1, 2, 3, 4].as_ref());
+        .attachment("image/png", "kittens.png", [1, 2, 3, 4].as_ref());
 
     // Connect to an SMTP relay server over TLS
     SmtpClientBuilder::new("smtp.gmail.com", 465)

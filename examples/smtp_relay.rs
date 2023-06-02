@@ -22,7 +22,7 @@ async fn main() {
         .to("jane@example.com")
         .subject("Hello, world!")
         .text_body("Hello, world!")
-        .binary_attachment("image/png", "kittens.png", [1, 2, 3, 4].as_ref());
+        .attachment("image/png", "kittens.png", [1, 2, 3, 4].as_ref());
 
     // Connect to an SMTP relay server.
     // The library will upgrade the connection to TLS if the server supports it.
