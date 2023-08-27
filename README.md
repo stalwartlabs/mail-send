@@ -25,6 +25,9 @@ _mail-send_ is a Rust library to build, sign and send e-mail messages via SMTP. 
 Send a message via an SMTP server that requires authentication:
 
 ```rust
+    use mail_send::SmtpClientBuilder;
+    use mail_builder::MessageBuilder;
+
     // Build a simple multipart message
     let message = MessageBuilder::new()
         .from(("John Doe", "john@example.com"))
@@ -52,6 +55,9 @@ Send a message via an SMTP server that requires authentication:
 Sign a message with DKIM and send it via an SMTP relay server:
 
 ```rust
+    use mail_send::SmtpClientBuilder;
+    use mail_builder::MessageBuilder;
+
     // Build a simple text message with a single attachment
     let message = MessageBuilder::new()
         .from(("John Doe", "john@example.com"))
