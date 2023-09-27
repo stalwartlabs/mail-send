@@ -22,13 +22,14 @@ base64 = "0.20.0"
 rand = { version = "0.8.5", optional = true }
 md5 = { version = "0.7.0", optional = true }
 tokio = { version = "1.23", features = ["net", "io-util", "time"]}
-rustls = { version = "0.21", features = ["dangerous_configuration"]}
+rustls = { version = "0.21", features = ["tls12", "dangerous_configuration"]}
 tokio-rustls = { version = "0.24"}
-webpki-roots = { version = "0.23"}
+webpki-roots = { version = "0.25.2"}
 gethostname = { version = "0.4"}
 
 [dev-dependencies]
 tokio = { version = "1.16", features = ["net", "io-util", "time", "rt-multi-thread", "macros"] }
+env_logger = "0.10.0"
 
 [features]
 default = ["digest-md5", "cram-md5", "builder", "dkim"]

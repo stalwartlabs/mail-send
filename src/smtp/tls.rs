@@ -11,7 +11,7 @@
 use std::{convert::TryFrom, io, sync::Arc};
 
 use rustls::{
-    client::{ServerCertVerified, ServerCertVerifier, WebPkiVerifier},
+    client::{ServerCertVerified, ServerCertVerifier},
     Certificate, ClientConfig, ClientConnection, OwnedTrustAnchor, RootCertStore, ServerName,
 };
 use tokio::net::TcpStream;
@@ -80,22 +80,25 @@ pub fn build_tls_connector(allow_invalid_certs: bool) -> TlsConnector {
     let config = if !allow_invalid_certs {
         let mut root_cert_store = RootCertStore::empty();
 
-        root_cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(
-            |ta| {
-                OwnedTrustAnchor::from_subject_spki_name_constraints(
-                    ta.subject,
-                    ta.spki,
-                    ta.name_constraints,
-                )
-            },
-        ));
+        root_cert_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
+            OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        }));
+
+        //config
+        //    .with_custom_certificate_verifier(Arc::new(WebPkiVerifier::new(root_cert_store, None)))
 
         config
-            .with_custom_certificate_verifier(Arc::new(WebPkiVerifier::new(root_cert_store, None)))
+            .with_root_certificates(root_cert_store)
+            .with_no_client_auth()
     } else {
-        config.with_custom_certificate_verifier(Arc::new(DummyVerifier {}))
-    }
-    .with_no_client_auth();
+        config
+            .with_custom_certificate_verifier(Arc::new(DummyVerifier {}))
+            .with_no_client_auth()
+    };
 
     TlsConnector::from(Arc::new(config))
 }

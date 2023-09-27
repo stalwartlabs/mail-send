@@ -160,6 +160,7 @@ mod test {
     #[tokio::test]
     async fn smtp_basic() {
         // StartTLS test
+        env_logger::init();
         let client = SmtpClientBuilder::new("mail.smtp2go.com", 2525)
             .implicit_tls(false)
             .connect()
