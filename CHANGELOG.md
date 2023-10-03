@@ -1,3 +1,7 @@
+mail-send 0.4.1
+================================
+- Bump `webpki-roots` dependency to 0.25
+
 mail-send 0.4.0
 ================================
 - Bump `mail-builder` dependency to 0.3
