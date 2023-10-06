@@ -10,6 +10,7 @@
 
 use std::{fmt::Display, hash::Hash};
 
+use base64::prelude::{Engine as _, BASE64_STANDARD};
 use smtp_proto::{
     response::generate::BitToString, EhloResponse, AUTH_CRAM_MD5, AUTH_DIGEST_MD5, AUTH_LOGIN,
     AUTH_OAUTHBEARER, AUTH_PLAIN, AUTH_XOAUTH2,
@@ -139,173 +140,162 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
     }
 
     pub fn encode(&self, mechanism: u64, challenge: &str) -> crate::Result<String> {
-        Ok(base64::encode(
-            match (mechanism, self) {
-                (AUTH_PLAIN, Credentials::Plain { username, secret }) => {
-                    format!("\u{0}{}\u{0}{}", username.as_ref(), secret.as_ref())
+        let bytes = match (mechanism, self) {
+            (AUTH_PLAIN, Credentials::Plain { username, secret }) => {
+                format!("\u{0}{}\u{0}{}", username.as_ref(), secret.as_ref())
+            }
+
+            (AUTH_LOGIN, Credentials::Plain { username, secret }) => {
+                let challenge = BASE64_STANDARD.decode(challenge)?;
+                let username = username.as_ref();
+                let secret = secret.as_ref();
+
+                if b"user name"
+                    .eq_ignore_ascii_case(challenge.get(0..9).ok_or(Error::InvalidChallenge)?)
+                    || b"username".eq_ignore_ascii_case(
+                        // Because Google makes its own standards
+                        challenge.get(0..8).ok_or(Error::InvalidChallenge)?,
+                    )
+                {
+                    &username
+                } else if b"password"
+                    .eq_ignore_ascii_case(challenge.get(0..8).ok_or(Error::InvalidChallenge)?)
+                {
+                    &secret
+                } else {
+                    return Err(Error::InvalidChallenge.into());
                 }
+                .to_string()
+            }
 
-                (AUTH_LOGIN, Credentials::Plain { username, secret }) => {
-                    let challenge = base64::decode(challenge)?;
-                    let username = username.as_ref();
-                    let secret = secret.as_ref();
+            #[cfg(feature = "digest-md5")]
+            (AUTH_DIGEST_MD5, Credentials::Plain { username, secret }) => {
+                let mut buf = Vec::with_capacity(10);
+                let mut key = None;
+                let mut in_quote = false;
+                let mut values = std::collections::HashMap::new();
+                let challenge = BASE64_STANDARD.decode(challenge)?;
+                let challenge_len = challenge.len();
+                let username = username.as_ref();
+                let secret = secret.as_ref();
 
-                    if b"user name"
-                        .eq_ignore_ascii_case(challenge.get(0..9).ok_or(Error::InvalidChallenge)?)
-                        || b"username".eq_ignore_ascii_case(
-                            // Because Google makes its own standards
-                            challenge.get(0..8).ok_or(Error::InvalidChallenge)?,
-                        )
-                    {
-                        &username
-                    } else if b"password"
-                        .eq_ignore_ascii_case(challenge.get(0..8).ok_or(Error::InvalidChallenge)?)
-                    {
-                        &secret
-                    } else {
-                        return Err(Error::InvalidChallenge.into());
-                    }
-                    .to_string()
-                }
-
-                #[cfg(feature = "digest-md5")]
-                (AUTH_DIGEST_MD5, Credentials::Plain { username, secret }) => {
-                    let mut buf = Vec::with_capacity(10);
-                    let mut key = None;
-                    let mut in_quote = false;
-                    let mut values = std::collections::HashMap::new();
-                    let challenge = base64::decode(challenge)?;
-                    let challenge_len = challenge.len();
-                    let username = username.as_ref();
-                    let secret = secret.as_ref();
-
-                    for (pos, byte) in challenge.into_iter().enumerate() {
-                        let add_key = match byte {
-                            b'=' if !in_quote => {
-                                if key.is_none() && !buf.is_empty() {
-                                    key = String::from_utf8_lossy(&buf).into_owned().into();
-                                    buf.clear();
-                                } else {
-                                    return Err(Error::InvalidChallenge.into());
-                                }
-                                false
+                for (pos, byte) in challenge.into_iter().enumerate() {
+                    let add_key = match byte {
+                        b'=' if !in_quote => {
+                            if key.is_none() && !buf.is_empty() {
+                                key = String::from_utf8_lossy(&buf).into_owned().into();
+                                buf.clear();
+                            } else {
+                                return Err(Error::InvalidChallenge.into());
                             }
-                            b',' if !in_quote => true,
-                            b'"' => {
-                                in_quote = !in_quote;
-                                false
-                            }
-                            _ => {
-                                buf.push(byte);
-                                false
-                            }
-                        };
-
-                        if (add_key || pos == challenge_len - 1) && key.is_some() && !buf.is_empty()
-                        {
-                            values.insert(
-                                key.take().unwrap(),
-                                String::from_utf8_lossy(&buf).into_owned(),
-                            );
-                            buf.clear();
+                            false
                         }
-                    }
-
-                    let (digest_uri, realm, realm_response) =
-                        if let Some(realm) = values.get("realm") {
-                            (
-                                format!("smtp/{realm}"),
-                                realm.as_str(),
-                                format!(",realm=\"{realm}\""),
-                            )
-                        } else {
-                            ("smtp/localhost".to_string(), "", "".to_string())
-                        };
-
-                    let credentials =
-                        md5::compute(format!("{username}:{realm}:{secret}").as_bytes());
-
-                    let a2 = md5::compute(
-                        if values.get("qpop").map_or(false, |v| v == "auth") {
-                            format!("AUTHENTICATE:{digest_uri}")
-                        } else {
-                            format!("AUTHENTICATE:{digest_uri}:00000000000000000000000000000000")
+                        b',' if !in_quote => true,
+                        b'"' => {
+                            in_quote = !in_quote;
+                            false
                         }
-                        .as_bytes(),
-                    );
-
-                    #[allow(unused_variables)]
-                    let cnonce = {
-                        use rand::RngCore;
-                        let mut buf = [0u8; 16];
-                        rand::thread_rng().fill_bytes(&mut buf);
-                        base64::encode(buf)
+                        _ => {
+                            buf.push(byte);
+                            false
+                        }
                     };
 
-                    #[cfg(test)]
-                    let cnonce = "OA6MHXh6VqTrRk".to_string();
-                    let nonce = values.remove("nonce").unwrap_or_default();
-                    let qop = values.remove("qop").unwrap_or_default();
-                    let charset = values
-                        .remove("charset")
-                        .unwrap_or_else(|| "utf-8".to_string());
-
-                    format!(
-                        concat!(
-                            "charset={},username=\"{}\",realm=\"{}\",nonce=\"{}\",nc=00000001,",
-                            "cnonce=\"{}\",digest-uri=\"{}\",response={:x},qop={}"
-                        ),
-                        charset,
-                        username,
-                        realm_response,
-                        nonce,
-                        cnonce,
-                        digest_uri,
-                        md5::compute(
-                            format!("{credentials:x}:{nonce}:00000001:{cnonce}:{qop}:{a2:x}")
-                                .as_bytes()
-                        ),
-                        qop
-                    )
-                }
-
-                #[cfg(feature = "cram-md5")]
-                (AUTH_CRAM_MD5, Credentials::Plain { username, secret }) => {
-                    let mut secret_opad: Vec<u8> = vec![0x5c; 64];
-                    let mut secret_ipad: Vec<u8> = vec![0x36; 64];
-                    let username = username.as_ref();
-                    let secret = secret.as_ref();
-
-                    if secret.len() < 64 {
-                        for (pos, byte) in secret.as_bytes().iter().enumerate() {
-                            secret_opad[pos] = *byte ^ 0x5c;
-                            secret_ipad[pos] = *byte ^ 0x36;
-                        }
-                    } else {
-                        for (pos, byte) in md5::compute(secret.as_bytes()).iter().enumerate() {
-                            secret_opad[pos] = *byte ^ 0x5c;
-                            secret_ipad[pos] = *byte ^ 0x36;
-                        }
+                    if (add_key || pos == challenge_len - 1) && key.is_some() && !buf.is_empty() {
+                        values.insert(
+                            key.take().unwrap(),
+                            String::from_utf8_lossy(&buf).into_owned(),
+                        );
+                        buf.clear();
                     }
-
-                    secret_ipad.extend_from_slice(&base64::decode(challenge)?);
-                    secret_opad.extend_from_slice(&md5::compute(&secret_ipad).0);
-
-                    format!("{} {:x}", username, md5::compute(&secret_opad))
                 }
 
-                (AUTH_XOAUTH2, Credentials::XOauth2 { username, secret }) => format!(
-                    "user={}\x01auth=Bearer {}\x01\x01",
-                    username.as_ref(),
-                    secret.as_ref()
-                ),
-                (AUTH_OAUTHBEARER, Credentials::OAuthBearer { token }) => {
-                    token.as_ref().to_string()
-                }
-                _ => return Err(crate::Error::UnsupportedAuthMechanism),
+                let (digest_uri, realm, realm_response) = if let Some(realm) = values.get("realm") {
+                    (
+                        format!("smtp/{realm}"),
+                        realm.as_str(),
+                        format!(",realm=\"{realm}\""),
+                    )
+                } else {
+                    ("smtp/localhost".to_string(), "", "".to_string())
+                };
+
+                let credentials = md5::compute(format!("{username}:{realm}:{secret}").as_bytes());
+
+                let a2 = md5::compute(
+                    if values.get("qpop").map_or(false, |v| v == "auth") {
+                        format!("AUTHENTICATE:{digest_uri}")
+                    } else {
+                        format!("AUTHENTICATE:{digest_uri}:00000000000000000000000000000000")
+                    }
+                    .as_bytes(),
+                );
+
+                #[allow(unused_variables)]
+                let cnonce = BASE64_STANDARD.encode(rand::random::<[u8; 16]>());
+
+                #[cfg(test)]
+                let cnonce = "OA6MHXh6VqTrRk".to_string();
+                let nonce = values.remove("nonce").unwrap_or_default();
+                let qop = values.remove("qop").unwrap_or_default();
+                let charset = values
+                    .remove("charset")
+                    .unwrap_or_else(|| "utf-8".to_string());
+
+                format!(
+                    concat!(
+                        "charset={},username=\"{}\",realm=\"{}\",nonce=\"{}\",nc=00000001,",
+                        "cnonce=\"{}\",digest-uri=\"{}\",response={:x},qop={}"
+                    ),
+                    charset,
+                    username,
+                    realm_response,
+                    nonce,
+                    cnonce,
+                    digest_uri,
+                    md5::compute(
+                        format!("{credentials:x}:{nonce}:00000001:{cnonce}:{qop}:{a2:x}")
+                            .as_bytes()
+                    ),
+                    qop
+                )
             }
-            .as_bytes(),
-        ))
+
+            #[cfg(feature = "cram-md5")]
+            (AUTH_CRAM_MD5, Credentials::Plain { username, secret }) => {
+                let mut secret_opad: Vec<u8> = vec![0x5c; 64];
+                let mut secret_ipad: Vec<u8> = vec![0x36; 64];
+                let username = username.as_ref();
+                let secret = secret.as_ref();
+
+                if secret.len() < 64 {
+                    for (pos, byte) in secret.as_bytes().iter().enumerate() {
+                        secret_opad[pos] = *byte ^ 0x5c;
+                        secret_ipad[pos] = *byte ^ 0x36;
+                    }
+                } else {
+                    for (pos, byte) in md5::compute(secret.as_bytes()).iter().enumerate() {
+                        secret_opad[pos] = *byte ^ 0x5c;
+                        secret_ipad[pos] = *byte ^ 0x36;
+                    }
+                }
+
+                secret_ipad.extend_from_slice(&BASE64_STANDARD.decode(challenge)?);
+                secret_opad.extend_from_slice(&md5::compute(&secret_ipad).0);
+
+                format!("{} {:x}", username, md5::compute(&secret_opad))
+            }
+
+            (AUTH_XOAUTH2, Credentials::XOauth2 { username, secret }) => format!(
+                "user={}\x01auth=Bearer {}\x01\x01",
+                username.as_ref(),
+                secret.as_ref()
+            ),
+            (AUTH_OAUTHBEARER, Credentials::OAuthBearer { token }) => token.as_ref().to_string(),
+            _ => return Err(crate::Error::UnsupportedAuthMechanism),
+        };
+
+        Ok(BASE64_STANDARD.encode(bytes.as_bytes()))
     }
 }
 
