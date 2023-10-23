@@ -35,6 +35,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
                 .unwrap_or("[127.0.0.1]")
                 .to_string(),
             credentials: None,
+            skip_ehlo: false,
         }
     }
 
@@ -74,6 +75,11 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
         self
     }
 
+    pub fn skip_ehlo(mut self, skip_ehlo: bool) -> Self {
+        self.skip_ehlo = skip_ehlo;
+        self
+    }
+
     /// Connect over TLS
     #[allow(unused_mut)]
     pub async fn connect(&self) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
@@ -109,8 +115,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
                 }
             };
 
-            #[cfg(not(feature = "skip-ehlo"))]
-            {
+            if !self.skip_ehlo {
                 // Obtain capabilities
                 let capabilities = client.capabilities(&self.local_host, self.is_lmtp).await?;
 
@@ -141,8 +146,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
         // Read greeting
         client.read().await?.assert_positive_completion()?;
 
-        #[cfg(not(feature = "skip-ehlo"))]
-        {
+        if !self.skip_ehlo {
             // Obtain capabilities
             let capabilities = client.capabilities(&self.local_host, self.is_lmtp).await?;
 

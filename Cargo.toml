@@ -33,7 +33,6 @@ env_logger = "0.10.0"
 
 [features]
 default = ["digest-md5", "cram-md5", "builder", "dkim"]
-skip-ehlo = []
 builder = ["mail-builder"]
 dkim = ["mail-auth"]
 digest-md5 = ["md5", "rand"]

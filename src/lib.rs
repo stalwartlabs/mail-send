@@ -204,6 +204,7 @@ pub struct SmtpClientBuilder<T: AsRef<str> + PartialEq + Eq + Hash> {
     pub addr: String,
     pub is_lmtp: bool,
     pub local_host: String,
+    pub skip_ehlo: bool,
 }
 
 /// SMTP client builder
