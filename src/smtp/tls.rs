@@ -11,9 +11,10 @@
 use std::{convert::TryFrom, io, sync::Arc};
 
 use rustls::{
-    client::{ServerCertVerified, ServerCertVerifier},
-    Certificate, ClientConfig, ClientConnection, OwnedTrustAnchor, RootCertStore, ServerName,
+    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    ClientConfig, ClientConnection, RootCertStore, SignatureScheme,
 };
+use rustls_pki_types::{ServerName, TrustAnchor};
 use tokio::net::TcpStream;
 use tokio_rustls::{client::TlsStream, TlsConnector};
 
@@ -45,7 +46,9 @@ impl SmtpClient<TcpStream> {
             Ok(SmtpClient {
                 stream: tls_connector
                     .connect(
-                        ServerName::try_from(hostname).map_err(|_| crate::Error::InvalidTLSName)?,
+                        ServerName::try_from(hostname)
+                            .map_err(|_| crate::Error::InvalidTLSName)?
+                            .to_owned(),
                         self.stream,
                     )
                     .await
@@ -75,27 +78,21 @@ impl SmtpClient<TlsStream<TcpStream>> {
 }
 
 pub fn build_tls_connector(allow_invalid_certs: bool) -> TlsConnector {
-    let config = ClientConfig::builder().with_safe_defaults();
-
     let config = if !allow_invalid_certs {
         let mut root_cert_store = RootCertStore::empty();
 
-        root_cert_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-            OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject.as_ref(),
-                ta.subject_public_key_info.as_ref(),
-                ta.name_constraints.as_ref().map(|v| v.as_ref()),
-            )
+        root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| TrustAnchor {
+            subject: ta.subject.clone(),
+            subject_public_key_info: ta.subject_public_key_info.clone(),
+            name_constraints: ta.name_constraints.clone(),
         }));
 
-        //config
-        //    .with_custom_certificate_verifier(Arc::new(WebPkiVerifier::new(root_cert_store, None)))
-
-        config
+        ClientConfig::builder()
             .with_root_certificates(root_cert_store)
             .with_no_client_auth()
     } else {
-        config
+        ClientConfig::builder()
+            .dangerous()
             .with_custom_certificate_verifier(Arc::new(DummyVerifier {}))
             .with_no_client_auth()
     };
@@ -104,18 +101,54 @@ pub fn build_tls_connector(allow_invalid_certs: bool) -> TlsConnector {
 }
 
 #[doc(hidden)]
+#[derive(Debug)]
 struct DummyVerifier;
 
 impl ServerCertVerifier for DummyVerifier {
     fn verify_server_cert(
         &self,
-        _e: &Certificate,
-        _i: &[Certificate],
-        _sn: &ServerName,
-        _sc: &mut dyn Iterator<Item = &[u8]>,
-        _o: &[u8],
-        _n: std::time::SystemTime,
+        _end_entity: &rustls_pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls_pki_types::CertificateDer<'_>],
+        _server_name: &rustls_pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls_pki_types::UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
         Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls_pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls_pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![
+            SignatureScheme::RSA_PKCS1_SHA1,
+            SignatureScheme::ECDSA_SHA1_Legacy,
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512,
+            SignatureScheme::ECDSA_NISTP521_SHA512,
+            SignatureScheme::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA512,
+            SignatureScheme::ED25519,
+            SignatureScheme::ED448,
+        ]
     }
 }

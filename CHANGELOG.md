@@ -1,3 +1,7 @@
+mail-send 0.4.3
+================================
+- Bump `rustls` dependency to 0.22
+
 mail-send 0.4.2
 ================================
 - Bump `webpki-roots` dependency to 0.26
