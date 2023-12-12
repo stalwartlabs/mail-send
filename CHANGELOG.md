@@ -3,6 +3,18 @@ mail-send unreleased
 - New `send_msg(&mut self, message: &Message<'x>)`
 - New `sign(&mut self, signer: &DkimSigner<_>)` method on `Message`
 
+mail-send 0.4.3
+================================
+- Bump `rustls` dependency to 0.22
+
+mail-send 0.4.2
+================================
+- Bump `webpki-roots` dependency to 0.26
+
+mail-send 0.4.1
+================================
+- Bump `webpki-roots` dependency to 0.25
+
 mail-send 0.4.0
 ================================
 - Bump `mail-builder` dependency to 0.3

@@ -167,9 +167,24 @@ mod test {
             .await
             .unwrap();
         client.quit().await.unwrap();
+        let client = SmtpClientBuilder::new("mail.smtp2go.com", 2525)
+            .allow_invalid_certs()
+            .implicit_tls(false)
+            .connect()
+            .await
+            .unwrap();
+        client.quit().await.unwrap();
 
         // Say hello to Google over TLS and quit
         let client = SmtpClientBuilder::new("smtp.gmail.com", 465)
+            .connect()
+            .await
+            .unwrap();
+        client.quit().await.unwrap();
+
+        // Say hello to Google over TLS and quit
+        let client = SmtpClientBuilder::new("smtp.gmail.com", 465)
+            .allow_invalid_certs()
             .connect()
             .await
             .unwrap();
