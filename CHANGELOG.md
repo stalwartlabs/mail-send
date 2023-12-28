@@ -1,3 +1,7 @@
+mail-send 0.4.4
+================================
+- Updated transparency procedure to escape <LF>. as well as <CR><LF>. to prevent SMTP smuggling on vulnerable servers.
+
 mail-send 0.4.3
 ================================
 - Bump `rustls` dependency to 0.22
