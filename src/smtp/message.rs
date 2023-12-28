@@ -108,29 +108,24 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
 
     pub async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
         // Transparency procedure
-        #[derive(Debug)]
-        enum State {
-            Cr,
-            CrLf,
-            Init,
-        }
+        let mut is_lf = false;
 
-        let mut state = State::Init;
+        // As per RFC 5322bis, section 2.3:
+        // CR and LF MUST only occur together as CRLF; they MUST NOT appear
+        // independently in the body.
+
         let mut last_pos = 0;
         for (pos, byte) in message.iter().enumerate() {
-            state = match *byte {
-                b'.' if matches!(state, State::CrLf) => {
-                    if let Some(bytes) = message.get(last_pos..pos) {
-                        self.stream.write_all(bytes).await?;
-                        self.stream.write_all(b".").await?;
-                        last_pos = pos;
-                    }
-                    State::Init
+            if *byte == b'.' && is_lf {
+                if let Some(bytes) = message.get(last_pos..pos) {
+                    self.stream.write_all(bytes).await?;
+                    self.stream.write_all(b".").await?;
+                    last_pos = pos;
                 }
-                b'\r' => State::Cr,
-                b'\n' if matches!(state, State::Cr) => State::CrLf,
-                _ => State::Init,
-            };
+                is_lf = false;
+            } else {
+                is_lf = *byte == b'\n';
+            }
         }
         if let Some(bytes) = message.get(last_pos..) {
             self.stream.write_all(bytes).await?;

@@ -3,6 +3,10 @@ mail-send unreleased
 - New `send_msg(&mut self, message: &Message<'x>)`
 - New `sign(&mut self, signer: &DkimSigner<_>)` method on `Message`
 
+mail-send 0.4.4
+================================
+- Updated transparency procedure to escape <LF>. as well as <CR><LF>. to prevent SMTP smuggling on vulnerable servers.
+
 mail-send 0.4.3
 ================================
 - Bump `rustls` dependency to 0.22
