@@ -102,23 +102,25 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
 
     pub async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
         // Transparency procedure
-        let mut is_lf = false;
+        let mut is_cr_or_lf = false;
 
         // As per RFC 5322bis, section 2.3:
         // CR and LF MUST only occur together as CRLF; they MUST NOT appear
         // independently in the body.
+        // For this reason, we apply the transparency procedure when there is
+        // a CR or LF followed by a dot.
 
         let mut last_pos = 0;
         for (pos, byte) in message.iter().enumerate() {
-            if *byte == b'.' && is_lf {
+            if *byte == b'.' && is_cr_or_lf {
                 if let Some(bytes) = message.get(last_pos..pos) {
                     self.stream.write_all(bytes).await?;
                     self.stream.write_all(b".").await?;
                     last_pos = pos;
                 }
-                is_lf = false;
+                is_cr_or_lf = false;
             } else {
-                is_lf = *byte == b'\n';
+                is_cr_or_lf = *byte == b'\n' || *byte == b'\r';
             }
         }
         if let Some(bytes) = message.get(last_pos..) {

@@ -1,3 +1,8 @@
+mail-send 0.4.5
+================================
+- Improved transparency procedure to also escape <CR>.
+- Removed `skip-ehlo` feature.
+
 mail-send 0.4.4
 ================================
 - Updated transparency procedure to escape <LF>. as well as <CR><LF>. to prevent SMTP smuggling on vulnerable servers.

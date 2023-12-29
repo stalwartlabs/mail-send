@@ -233,6 +233,27 @@ mod test {
 
     #[tokio::test]
     async fn transparency_procedure() {
+        const SMUGGLER: &str = r#"From: Joe SixPack <john@foobar.net>
+To: Suzie Q <suzie@foobar.org>
+Subject: Is dinner ready?
+
+Hi.
+
+We lost the game. Are you hungry yet?
+
+Joe.
+
+<SEP>.
+MAIL FROM:<admin@foobar.net>
+RCPT TO:<ok@foobar.org>
+DATA
+From: Joe SixPack <admin@foobar.net>
+To: Suzie Q <suzie@foobar.org>
+Subject: smuggled message
+
+This is a smuggled message
+"#;
+
         for (test, result) in [
             (
                 "A: b\r\n.\r\n".to_string(),
@@ -244,6 +265,36 @@ mod test {
                 "A: b\r\n...\r\n\r\n.\r\n".to_string(),
             ),
             ("A: ...b".to_string(), "A: ...b\r\n.\r\n".to_string()),
+            (
+                "A: \n.\r\nMAIL FROM:<>".to_string(),
+                "A: \n..\r\nMAIL FROM:<>\r\n.\r\n".to_string(),
+            ),
+            (
+                "A: \r.\r\nMAIL FROM:<>".to_string(),
+                "A: \r..\r\nMAIL FROM:<>\r\n.\r\n".to_string(),
+            ),
+            (
+                SMUGGLER
+                    .replace('\r', "")
+                    .replace('\n', "\r\n")
+                    .replace("<SEP>", "\r"),
+                SMUGGLER
+                    .replace('\r', "")
+                    .replace('\n', "\r\n")
+                    .replace("<SEP>", "\r.")
+                    + "\r\n.\r\n",
+            ),
+            (
+                SMUGGLER
+                    .replace('\r', "")
+                    .replace('\n', "\r\n")
+                    .replace("<SEP>", "\n"),
+                SMUGGLER
+                    .replace('\r', "")
+                    .replace('\n', "\r\n")
+                    .replace("<SEP>", "\n.")
+                    + "\r\n.\r\n",
+            ),
         ] {
             let mut client = SmtpClient {
                 stream: AsyncBufWriter::default(),
