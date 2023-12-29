@@ -133,7 +133,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         }
 
         // trailing \n. or \r. patterns also should be escaped
-        if let Some(bytes) = message.get(message.len() - 2..) {
+        if let Some(bytes) = message.get(message.len().saturating_sub(2)..) {
             if bytes.len() == 2 && bytes[1] == b'.' && (bytes[0] == b'\n' || bytes[0] == b'\r') {
                 self.stream.write_all(b".").await?;
             }
