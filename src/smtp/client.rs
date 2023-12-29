@@ -234,14 +234,37 @@ mod test {
     #[tokio::test]
     async fn transparency_procedure() {
         for (test, result) in [
+            // escapes required
             (
                 "A: b\r\n.\r\n".to_string(),
                 "A: b\r\n..\r\n\r\n.\r\n".to_string(),
             ),
+            (
+                "A: b\r.\r\n".to_string(),
+                "A: b\r..\r\n\r\n.\r\n".to_string(),
+            ),
+            (
+                "A: b\n.\r\n".to_string(),
+                "A: b\n..\r\n\r\n.\r\n".to_string(),
+            ),
+            (
+                "A: b\r\n.\r\nSome text".to_string(),
+                "A: b\r\n..\r\nSome text\r\n.\r\n".to_string(),
+            ),
+            (
+                "A: b\r.\r\nSome text".to_string(),
+                "A: b\r..\r\nSome text\r\n.\r\n".to_string(),
+            ),
+            (
+                "A: b\n.\r\nSome text".to_string(),
+                "A: b\n..\r\nSome text\r\n.\r\n".to_string(),
+            ),
             ("A: b\r\n.".to_string(), "A: b\r\n..\r\n.\r\n".to_string()),
+
+            // no escapes required
             (
                 "A: b\r\n..\r\n".to_string(),
-                "A: b\r\n...\r\n\r\n.\r\n".to_string(),
+                "A: b\r\n..\r\n\r\n.\r\n".to_string(),
             ),
             ("A: ...b".to_string(), "A: ...b\r\n.\r\n".to_string()),
         ] {

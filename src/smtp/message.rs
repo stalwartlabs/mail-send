@@ -101,29 +101,44 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     }
 
     pub async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
-        // Transparency procedure
-        let mut is_lf = false;
-
         // As per RFC 5322bis, section 2.3:
         // CR and LF MUST only occur together as CRLF; they MUST NOT appear
         // independently in the body.
 
+        // escape '.' with '..' for regex matching: [\n\r].[\n\r]
         let mut last_pos = 0;
-        for (pos, byte) in message.iter().enumerate() {
-            if *byte == b'.' && is_lf {
-                if let Some(bytes) = message.get(last_pos..pos) {
-                    self.stream.write_all(bytes).await?;
-                    self.stream.write_all(b".").await?;
-                    last_pos = pos;
-                }
-                is_lf = false;
-            } else {
-                is_lf = *byte == b'\n';
+        for (pos, window) in message.windows(3).enumerate() {
+            if window[1] != b'.' {
+                continue;
+            }
+
+            if !(window[0] == b'\n' || window[0] == b'\r') {
+                continue;
+            }
+
+            if !(window[2] == b'\n' || window[2] == b'\r') {
+                continue;
+            }
+
+            let dot_pos = pos + 1;
+            if let Some(bytes) = message.get(last_pos..dot_pos) {
+                self.stream.write_all(bytes).await?;
+                self.stream.write_all(b".").await?;
+                last_pos = dot_pos;
             }
         }
+
         if let Some(bytes) = message.get(last_pos..) {
             self.stream.write_all(bytes).await?;
         }
+
+        // trailing \n. or \r. patterns also should be escaped
+        if let Some(bytes) = message.get(message.len() - 2..) {
+            if bytes.len() == 2 && bytes[1] == b'.' && (bytes[0] == b'\n' || bytes[0] == b'\r') {
+                self.stream.write_all(b".").await?;
+            }
+        }
+
         self.stream.write_all("\r\n.\r\n".as_bytes()).await?;
         self.stream.flush().await
     }
