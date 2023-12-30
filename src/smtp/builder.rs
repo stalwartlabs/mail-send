@@ -35,6 +35,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
                 .unwrap_or("[127.0.0.1]")
                 .to_string(),
             credentials: None,
+            say_ehlo: true,
         }
     }
 
@@ -53,6 +54,12 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     /// Use LMTP instead of SMTP
     pub fn lmtp(mut self, is_lmtp: bool) -> Self {
         self.is_lmtp = is_lmtp;
+        self
+    }
+
+    // Say EHLO/LHLO
+    pub fn say_ehlo(mut self, say_ehlo: bool) -> Self {
+        self.say_ehlo = say_ehlo;
         self
     }
 
@@ -76,15 +83,6 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
 
     /// Connect over TLS
     pub async fn connect(&self) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
-        self.connect_opts(true).await
-    }
-
-    /// Connect over TLS specifying whether to say hello
-    #[allow(unused_mut)]
-    pub async fn connect_opts(
-        &self,
-        say_hello: bool,
-    ) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
         tokio::time::timeout(self.timeout, async {
             let mut client = SmtpClient {
                 stream: TcpStream::connect(&self.addr).await?,
@@ -117,13 +115,13 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
                 }
             };
 
-            // Authenticate
-            if let Some(credentials) = &self.credentials {
+            if self.say_ehlo {
                 // Obtain capabilities
                 let capabilities = client.capabilities(&self.local_host, self.is_lmtp).await?;
-                client.authenticate(&credentials, &capabilities).await?;
-            } else if say_hello {
-                client.capabilities(&self.local_host, self.is_lmtp).await?;
+                // Authenticate
+                if let Some(credentials) = &self.credentials {
+                    client.authenticate(&credentials, &capabilities).await?;
+                }
             }
 
             Ok(client)
@@ -134,15 +132,6 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
 
     /// Connect over clear text (should not be used)
     pub async fn connect_plain(&self) -> crate::Result<SmtpClient<TcpStream>> {
-        self.connect_plain_opts(true).await
-    }
-
-    /// Connect over clear text specifying whether to say hello
-    #[allow(unused_mut)]
-    pub async fn connect_plain_opts(
-        &self,
-        say_hello: bool,
-    ) -> crate::Result<SmtpClient<TcpStream>> {
         let mut client = SmtpClient {
             stream: tokio::time::timeout(self.timeout, async {
                 TcpStream::connect(&self.addr).await
@@ -155,14 +144,13 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
         // Read greeting
         client.read().await?.assert_positive_completion()?;
 
-        // Authenticate
-        if let Some(credentials) = &self.credentials {
+        if self.say_ehlo {
             // Obtain capabilities
             let capabilities = client.capabilities(&self.local_host, self.is_lmtp).await?;
-
-            client.authenticate(&credentials, &capabilities).await?;
-        } else if say_hello {
-            client.capabilities(&self.local_host, self.is_lmtp).await?;
+            // Authenticate
+            if let Some(credentials) = &self.credentials {
+                client.authenticate(&credentials, &capabilities).await?;
+            }
         }
 
         Ok(client)

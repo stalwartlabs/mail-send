@@ -1,4 +1,4 @@
-mail-send 0.4.5
+mail-send 0.4.6
 ================================
 - Improved transparency procedure to also escape <CR>.
 - Removed `skip-ehlo` feature.
