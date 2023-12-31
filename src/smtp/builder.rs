@@ -35,6 +35,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
                 .unwrap_or("[127.0.0.1]")
                 .to_string(),
             credentials: None,
+            say_ehlo: true,
         }
     }
 
@@ -53,6 +54,12 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     /// Use LMTP instead of SMTP
     pub fn lmtp(mut self, is_lmtp: bool) -> Self {
         self.is_lmtp = is_lmtp;
+        self
+    }
+
+    // Say EHLO/LHLO
+    pub fn say_ehlo(mut self, say_ehlo: bool) -> Self {
+        self.say_ehlo = say_ehlo;
         self
     }
 
@@ -75,7 +82,6 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     }
 
     /// Connect over TLS
-    #[allow(unused_mut)]
     pub async fn connect(&self) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
         tokio::time::timeout(self.timeout, async {
             let mut client = SmtpClient {
@@ -109,11 +115,9 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
                 }
             };
 
-            #[cfg(not(feature = "skip-ehlo"))]
-            {
+            if self.say_ehlo {
                 // Obtain capabilities
                 let capabilities = client.capabilities(&self.local_host, self.is_lmtp).await?;
-
                 // Authenticate
                 if let Some(credentials) = &self.credentials {
                     client.authenticate(&credentials, &capabilities).await?;
@@ -127,7 +131,6 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     }
 
     /// Connect over clear text (should not be used)
-    #[allow(unused_mut)]
     pub async fn connect_plain(&self) -> crate::Result<SmtpClient<TcpStream>> {
         let mut client = SmtpClient {
             stream: tokio::time::timeout(self.timeout, async {
@@ -141,11 +144,9 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
         // Read greeting
         client.read().await?.assert_positive_completion()?;
 
-        #[cfg(not(feature = "skip-ehlo"))]
-        {
+        if self.say_ehlo {
             // Obtain capabilities
             let capabilities = client.capabilities(&self.local_host, self.is_lmtp).await?;
-
             // Authenticate
             if let Some(credentials) = &self.credentials {
                 client.authenticate(&credentials, &capabilities).await?;

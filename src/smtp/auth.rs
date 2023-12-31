@@ -335,6 +335,14 @@ impl<U: AsRef<str> + PartialEq + Eq + Hash> AsRef<Credentials<U>> for Credential
     }
 }
 
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Error::InvalidChallenge => write!(f, "Invalid challenge received."),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
 
@@ -413,13 +421,5 @@ mod test {
                 .unwrap(),
             "AHRpbQB0YW5zdGFhZnRhbnN0YWFm"
         );
-    }
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::InvalidChallenge => write!(f, "Invalid challenge received."),
-        }
     }
 }
