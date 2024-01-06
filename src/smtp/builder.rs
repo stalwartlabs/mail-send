@@ -8,23 +8,27 @@
  * except according to those terms.
  */
 
+use crate::{Credentials, SmtpClient, SmtpClientBuilder};
 use smtp_proto::{EhloResponse, EXT_START_TLS};
 use std::hash::Hash;
 use std::time::Duration;
+use tokio::net::ToSocketAddrs;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
 use tokio_rustls::client::TlsStream;
 
-use crate::{Credentials, SmtpClient, SmtpClientBuilder};
-
 use super::{tls::build_tls_connector, AssertReply};
 
-impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
+impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T>
+where
+    for<'a> (&'a T, u16): ToSocketAddrs,
+{
     pub fn new(hostname: T, port: u16) -> Self {
         SmtpClientBuilder {
-            addr: format!("{}:{}", hostname.as_ref(), port),
+            addr: None,
+            port,
             timeout: Duration::from_secs(60 * 60),
             tls_connector: build_tls_connector(false),
             tls_hostname: hostname,
@@ -85,7 +89,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     pub async fn connect(&self) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
         tokio::time::timeout(self.timeout, async {
             let mut client = SmtpClient {
-                stream: TcpStream::connect(&self.addr).await?,
+                stream: self.tcp_connect().await?,
                 timeout: self.timeout,
             };
 
@@ -130,14 +134,21 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
         .map_err(|_| crate::Error::Timeout)?
     }
 
+    pub async fn tcp_connect(&self) -> std::io::Result<TcpStream> {
+        let port = self.port;
+        if let Some(addr) = self.addr {
+            TcpStream::connect((addr, port)).await
+        } else {
+            TcpStream::connect((&self.tls_hostname, port)).await
+        }
+    }
+
     /// Connect over clear text (should not be used)
     pub async fn connect_plain(&self) -> crate::Result<SmtpClient<TcpStream>> {
         let mut client = SmtpClient {
-            stream: tokio::time::timeout(self.timeout, async {
-                TcpStream::connect(&self.addr).await
-            })
-            .await
-            .map_err(|_| crate::Error::Timeout)??,
+            stream: tokio::time::timeout(self.timeout, async { self.tcp_connect().await })
+                .await
+                .map_err(|_| crate::Error::Timeout)??,
             timeout: self.timeout,
         };
 
