@@ -18,6 +18,8 @@ use mail_builder::{
     headers::{address, HeaderType},
     MessageBuilder,
 };
+#[cfg(feature = "parser")]
+use mail_parser::{HeaderName, HeaderValue};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::SmtpClient;
@@ -345,6 +347,71 @@ impl<'x, 'y> IntoMessage<'x> for MessageBuilder<'y> {
                 })
                 .collect(),
             body: self.write_to_vec()?.into(),
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+impl<'x> IntoMessage<'x> for mail_parser::Message<'x> {
+    fn into_message(self) -> crate::Result<Message<'x>> {
+        let mut mail_from = None;
+        let mut rcpt_to = std::collections::HashSet::new();
+
+        let find_address = |addr: &mail_parser::Addr| -> Option<String> {
+            addr.address
+                .as_ref()
+                .filter(|address| !address.trim().is_empty())
+                .map(|address| address.trim().to_string())
+        };
+
+        for header in self.headers() {
+            match &header.name {
+                HeaderName::From => match header.value() {
+                    HeaderValue::Address(mail_parser::Address::List(addrs)) => {
+                        if let Some(email) = addrs.iter().find_map(find_address) {
+                            mail_from = email.to_string().into();
+                        }
+                    }
+                    HeaderValue::Address(mail_parser::Address::Group(groups)) => {
+                        if let Some(grps) = groups.first() {
+                            if let Some(email) = grps.addresses.iter().find_map(find_address) {
+                                mail_from = email.to_string().into();
+                            }
+                        }
+                    }
+                    _ => (),
+                },
+                HeaderName::To | HeaderName::Cc | HeaderName::Bcc => match header.value() {
+                    HeaderValue::Address(mail_parser::Address::List(addrs)) => {
+                        rcpt_to.extend(addrs.iter().filter_map(find_address));
+                    }
+                    HeaderValue::Address(mail_parser::Address::Group(grps)) => {
+                        rcpt_to.extend(
+                            grps.iter()
+                                .flat_map(|grp| grp.addresses.iter())
+                                .filter_map(find_address),
+                        );
+                    }
+                    _ => (),
+                },
+                _ => (),
+            };
+        }
+
+        if rcpt_to.is_empty() {
+            return Err(crate::Error::MissingRcptTo);
+        }
+
+        Ok(Message {
+            mail_from: mail_from.ok_or(crate::Error::MissingMailFrom)?.into(),
+            rcpt_to: rcpt_to
+                .into_iter()
+                .map(|email| Address {
+                    email: email.into(),
+                    parameters: Parameters::default(),
+                })
+                .collect(),
+            body: self.raw_message,
         })
     }
 }
