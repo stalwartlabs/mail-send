@@ -63,6 +63,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         self.cmd(b"RSET\r\n").await?.assert_positive_completion()
     }
 
+    /// Sends a NOOP command to the server.
+    pub async fn noop(&mut self) -> crate::Result<()> {
+        self.cmd(b"NOOP\r\n").await?.assert_positive_completion()
+    }
+
     /// Sends a QUIT command to the server.
     pub async fn quit(mut self) -> crate::Result<()> {
         self.cmd(b"QUIT\r\n").await?.assert_positive_completion()
