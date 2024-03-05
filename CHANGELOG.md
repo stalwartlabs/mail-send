@@ -1,3 +1,7 @@
+mail-send 0.4.7
+================================
+- Added 'parser` feature for `Message` conversion.
+
 mail-send 0.4.6
 ================================
 - Improved transparency procedure to also escape <CR>.
