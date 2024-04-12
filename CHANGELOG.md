@@ -1,3 +1,8 @@
+mail-send unreleased
+================================
+- New `send_msg(&mut self, message: &Message<'x>)`
+- New `sign(&mut self, signer: &DkimSigner<_>)` method on `Message`
+
 mail-send 0.5.0
 ================================
 - Bump `mail-parser` dependency to 0.10

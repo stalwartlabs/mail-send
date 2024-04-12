@@ -15,8 +15,8 @@ use std::{
 
 #[cfg(feature = "builder")]
 use mail_builder::{
-    headers::{address, HeaderType},
     MessageBuilder,
+    headers::{HeaderType, address},
 };
 #[cfg(feature = "parser")]
 use mail_parser::{HeaderName, HeaderValue};
@@ -24,11 +24,21 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::SmtpClient;
 
+#[cfg(feature = "dkim")]
+#[derive(Debug, Default, Clone, PartialEq)]
+enum Dkim {
+    #[default]
+    Unsigned,
+    Signed,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Message<'x> {
     pub mail_from: Address<'x>,
     pub rcpt_to: Vec<Address<'x>>,
     pub body: Cow<'x, [u8]>,
+    #[cfg(feature = "dkim")]
+    dkim: Dkim,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -49,10 +59,10 @@ pub struct Parameter<'x> {
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
-    /// Sends a message to the server.
-    pub async fn send<'x>(&mut self, message: impl IntoMessage<'x>) -> crate::Result<()> {
+    /// Send headers
+    #[inline]
+    async fn send_headers<'x>(&mut self, message: &Message<'x>) -> crate::Result<()> {
         // Send mail-from
-        let message = message.into_message()?;
         self.mail_from(
             message.mail_from.email.as_ref(),
             &message.mail_from.parameters,
@@ -64,42 +74,38 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
             self.rcpt_to(rcpt.email.as_ref(), &rcpt.parameters).await?;
         }
 
+        Ok(())
+    }
+
+    /// Convert into message and send that message to the server.
+    pub async fn send<'x>(&mut self, message: impl IntoMessage<'x>) -> crate::Result<()> {
+        // Send mail-from
+        let message = message.into_message()?;
+
+        self.send_msg(&message).await
+    }
+
+    /// Send a message to the server.
+    #[inline]
+    pub async fn send_msg<'x>(&mut self, message: &Message<'x>) -> crate::Result<()> {
+        self.send_headers(message).await?;
+
         // Send message
         self.data(message.body.as_ref()).await
     }
 
-    /// Sends a message to the server.
+    /// Convert into message, sign and send that message to the server.
     #[cfg(feature = "dkim")]
     pub async fn send_signed<'x, V: mail_auth::common::crypto::SigningKey>(
         &mut self,
         message: impl IntoMessage<'x>,
         signer: &mail_auth::dkim::DkimSigner<V, mail_auth::dkim::Done>,
     ) -> crate::Result<()> {
-        // Send mail-from
-
-        use mail_auth::common::headers::HeaderWriter;
-        let message = message.into_message()?;
-        self.mail_from(
-            message.mail_from.email.as_ref(),
-            &message.mail_from.parameters,
-        )
-        .await?;
-
-        // Send rcpt-to
-        for rcpt in &message.rcpt_to {
-            self.rcpt_to(rcpt.email.as_ref(), &rcpt.parameters).await?;
-        }
-
-        // Sign message
-        let signature = signer
-            .sign(message.body.as_ref())
-            .map_err(|_| crate::Error::MissingCredentials)?;
-        let mut signed_message = Vec::with_capacity(message.body.len() + 64);
-        signature.write_header(&mut signed_message);
-        signed_message.extend_from_slice(message.body.as_ref());
+        let mut message = message.into_message()?;
+        message.sign(signer)?;
 
         // Send message
-        self.data(&signed_message).await
+        self.send_msg(&message).await
     }
 
     pub async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
@@ -145,6 +151,8 @@ impl<'x> Message<'x> {
             mail_from: from.into(),
             rcpt_to: to.into_iter().map(Into::into).collect(),
             body: body.into(),
+            #[cfg(feature = "dkim")]
+            dkim: Dkim::Unsigned,
         }
     }
 
@@ -154,25 +162,55 @@ impl<'x> Message<'x> {
             mail_from: Address::default(),
             rcpt_to: Vec::new(),
             body: Default::default(),
+            #[cfg(feature = "dkim")]
+            dkim: Dkim::Unsigned,
         }
     }
 
     /// Set the sender of the message.
+    #[inline]
     pub fn from(mut self, address: impl Into<Address<'x>>) -> Self {
         self.mail_from = address.into();
         self
     }
 
     /// Add a message recipient.
+    #[inline]
     pub fn to(mut self, address: impl Into<Address<'x>>) -> Self {
         self.rcpt_to.push(address.into());
         self
     }
 
     /// Set the message body.
+    #[inline]
     pub fn body(mut self, body: impl Into<Cow<'x, [u8]>>) -> Self {
         self.body = body.into();
         self
+    }
+
+    /// Sign a message
+    #[cfg(feature = "dkim")]
+    #[inline]
+    pub fn sign<V: mail_auth::common::crypto::SigningKey>(
+        &mut self,
+        signer: &mail_auth::dkim::DkimSigner<V, mail_auth::dkim::Done>,
+    ) -> crate::Result<()> {
+        use mail_auth::common::headers::HeaderWriter;
+
+        let signature = signer
+            .sign(self.body.as_ref())
+            .map_err(|_| crate::Error::MissingCredentials)?;
+        let mut signed_message = Vec::with_capacity(self.body.len() + 64);
+        signature.write_header(&mut signed_message);
+        signed_message.extend_from_slice(self.body.as_ref());
+
+        if self.dkim == Dkim::Signed {
+            return Err(crate::Error::MessageDkimSigned);
+        }
+        self.body = signed_message.into();
+        self.dkim = Dkim::Signed;
+
+        Ok(())
     }
 }
 
@@ -204,10 +242,12 @@ impl<'x> Address<'x> {
 }
 
 impl<'x> Parameters<'x> {
+    #[inline]
     pub fn new() -> Self {
         Self { params: Vec::new() }
     }
 
+    #[inline]
     pub fn add(&mut self, param: impl Into<Parameter<'x>>) -> &mut Self {
         self.params.push(param.into());
         self
@@ -215,6 +255,7 @@ impl<'x> Parameters<'x> {
 }
 
 impl<'x> From<&'x str> for Parameter<'x> {
+    #[inline]
     fn from(value: &'x str) -> Self {
         Parameter {
             key: value.into(),
@@ -224,6 +265,7 @@ impl<'x> From<&'x str> for Parameter<'x> {
 }
 
 impl<'x> From<(&'x str, &'x str)> for Parameter<'x> {
+    #[inline]
     fn from(value: (&'x str, &'x str)) -> Self {
         Parameter {
             key: value.0.into(),
@@ -233,6 +275,7 @@ impl<'x> From<(&'x str, &'x str)> for Parameter<'x> {
 }
 
 impl From<(String, String)> for Parameter<'_> {
+    #[inline]
     fn from(value: (String, String)) -> Self {
         Parameter {
             key: value.0.into(),
@@ -242,6 +285,7 @@ impl From<(String, String)> for Parameter<'_> {
 }
 
 impl From<String> for Parameter<'_> {
+    #[inline]
     fn from(value: String) -> Self {
         Parameter {
             key: value.into(),
@@ -272,11 +316,12 @@ impl Display for Parameter<'_> {
     }
 }
 
-pub trait IntoMessage<'x> {
+pub trait IntoMessage<'x>: Sized {
     fn into_message(self) -> crate::Result<Message<'x>>;
 }
 
 impl<'x> IntoMessage<'x> for Message<'x> {
+    #[inline(always)]
     fn into_message(self) -> crate::Result<Message<'x>> {
         Ok(self)
     }
@@ -347,6 +392,8 @@ impl<'x> IntoMessage<'x> for MessageBuilder<'_> {
                 })
                 .collect(),
             body: self.write_to_vec()?.into(),
+            #[cfg(feature = "dkim")]
+            dkim: Dkim::Unsigned,
         })
     }
 }
@@ -412,6 +459,8 @@ impl<'x> IntoMessage<'x> for mail_parser::Message<'x> {
                 })
                 .collect(),
             body: self.raw_message,
+            #[cfg(feature = "dkim")]
+            dkim: Dkim::Unsigned,
         })
     }
 }
