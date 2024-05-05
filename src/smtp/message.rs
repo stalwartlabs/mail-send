@@ -24,25 +24,25 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::SmtpClient;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Message<'x> {
     pub mail_from: Address<'x>,
     pub rcpt_to: Vec<Address<'x>>,
     pub body: Cow<'x, [u8]>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Address<'x> {
     pub email: Cow<'x, str>,
     pub parameters: Parameters<'x>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Parameters<'x> {
     params: Vec<Parameter<'x>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Parameter<'x> {
     key: Cow<'x, str>,
     value: Option<Cow<'x, str>>,
