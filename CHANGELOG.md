@@ -1,6 +1,11 @@
+mail-send 0.4.8
+================================
+- Bump `mail-auth` dependency to 0.4
+- Bump `base64` dependency to 0.22
+
 mail-send 0.4.7
 ================================
-- Added 'parser` feature for `Message` conversion.
+- Added 'parser feature for `Message` conversion.
 
 mail-send 0.4.6
 ================================

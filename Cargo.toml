@@ -1,7 +1,7 @@
 [package]
 name = "mail-send"
 description = "E-mail delivery library with SMTP and DKIM support"
-version = "0.4.7"
+version = "0.4.8"
 edition = "2021"
 authors = [ "Stalwart Labs <hello@stalw.art>"]
 license = "Apache-2.0 OR MIT"
@@ -16,10 +16,10 @@ doctest = false
 
 [dependencies]
 smtp-proto = { version = "0.1" }
-mail-auth = { version = "0.3", optional = true }
+mail-auth = { version = "0.4", optional = true }
 mail-builder = { version = "0.3", optional = true }
 mail-parser = { version = "0.9", optional = true }
-base64 = "0.21"
+base64 = "0.22"
 rand = { version = "0.8.5", optional = true }
 md5 = { version = "0.7.0", optional = true }
 tokio = { version = "1.23", features = ["net", "io-util", "time"]}
@@ -31,7 +31,7 @@ gethostname = { version = "0.4"}
 
 [dev-dependencies]
 tokio = { version = "1.16", features = ["net", "io-util", "time", "rt-multi-thread", "macros"] }
-env_logger = "0.10.0"
+env_logger = "0.11.0"
 
 [features]
 default = ["digest-md5", "cram-md5", "builder", "dkim"]
