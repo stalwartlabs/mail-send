@@ -1,7 +1,7 @@
 [package]
 name = "mail-send"
 description = "E-mail delivery library with SMTP and DKIM support"
-version = "0.4.8"
+version = "0.4.9"
 edition = "2021"
 authors = [ "Stalwart Labs <hello@stalw.art>"]
 license = "Apache-2.0 OR MIT"
@@ -23,8 +23,8 @@ base64 = "0.22"
 rand = { version = "0.8.5", optional = true }
 md5 = { version = "0.7.0", optional = true }
 tokio = { version = "1.23", features = ["net", "io-util", "time"]}
-rustls = { version = "0.22", features = ["tls12"]}
-tokio-rustls = { version = "0.25"}
+rustls = { version = "0.23", default-features = false, features = ["std"]}
+tokio-rustls = { version = "0.26", default-features = false }
 webpki-roots = { version = "0.26"}
 rustls-pki-types = { version = "1" }
 gethostname = { version = "0.4"}
@@ -34,9 +34,15 @@ tokio = { version = "1.16", features = ["net", "io-util", "time", "rt-multi-thre
 env_logger = "0.11.0"
 
 [features]
-default = ["digest-md5", "cram-md5", "builder", "dkim"]
+default = ["digest-md5", "cram-md5", "builder", "dkim", "ring", "tls12"]
 builder = ["mail-builder"]
 parser = ["mail-parser"]
 dkim = ["mail-auth"]
 digest-md5 = ["md5", "rand"]
 cram-md5 = ["md5"]
+aws_lc_rs = ["rustls/aws_lc_rs", "tokio-rustls/aws_lc_rs"]
+aws-lc-rs = ["aws_lc_rs"]
+fips = ["rustls/fips", "tokio-rustls/fips"]
+logging = ["rustls/logging", "tokio-rustls/logging"]
+ring = ["rustls/ring", "tokio-rustls/ring"]
+tls12 = ["rustls/tls12", "tokio-rustls/tls12"]

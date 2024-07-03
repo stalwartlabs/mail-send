@@ -1,3 +1,8 @@
+mail-send 0.4.9
+================================
+- Bump `rustls` dependency to 0.23
+- Bump `tokio-rustls` dependency to 0.26
+
 mail-send 0.4.8
 ================================
 - Bump `mail-auth` dependency to 0.4
