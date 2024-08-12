@@ -178,6 +178,9 @@ pub enum Error {
 
     /// STARTTLS not available
     MissingStartTls,
+
+    /// Message is already signed
+    MessageDkimSigned,
 }
 
 impl std::error::Error for Error {
@@ -249,6 +252,7 @@ impl Display for Error {
             ),
             Error::Timeout => write!(f, "Connection timeout"),
             Error::MissingStartTls => write!(f, "STARTTLS extension unavailable"),
+            Error::MessageDkimSigned => write!(f, "Message is already signed"),
         }
     }
 }
