@@ -77,8 +77,8 @@ impl SmtpClient<TlsStream<TcpStream>> {
     }
 }
 
-pub fn build_tls_connector(allow_invalid_certs: bool) -> TlsConnector {
-    let config = if !allow_invalid_certs {
+pub fn build_tls_config(allow_invalid_certs: bool) -> ClientConfig {
+    if !allow_invalid_certs {
         let mut root_cert_store = RootCertStore::empty();
 
         root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| TrustAnchor {
@@ -95,9 +95,7 @@ pub fn build_tls_connector(allow_invalid_certs: bool) -> TlsConnector {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(DummyVerifier {}))
             .with_no_client_auth()
-    };
-
-    TlsConnector::from(Arc::new(config))
+    }
 }
 
 #[doc(hidden)]
