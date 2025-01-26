@@ -227,7 +227,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                         md5::compute(format!("{username}:{realm}:{secret}").as_bytes());
 
                     let a2 = md5::compute(
-                        if values.get("qpop").map_or(false, |v| v == "auth") {
+                        if values.get("qpop").is_some_and(|v| v == "auth") {
                             format!("AUTHENTICATE:{digest_uri}")
                         } else {
                             format!("AUTHENTICATE:{digest_uri}:00000000000000000000000000000000")

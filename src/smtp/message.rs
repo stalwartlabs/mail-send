@@ -185,7 +185,7 @@ impl<'x> From<&'x str> for Address<'x> {
     }
 }
 
-impl<'x> From<String> for Address<'x> {
+impl From<String> for Address<'_> {
     fn from(email: String) -> Self {
         Address {
             email: email.into(),
@@ -232,7 +232,7 @@ impl<'x> From<(&'x str, &'x str)> for Parameter<'x> {
     }
 }
 
-impl<'x> From<(String, String)> for Parameter<'x> {
+impl From<(String, String)> for Parameter<'_> {
     fn from(value: (String, String)) -> Self {
         Parameter {
             key: value.0.into(),
@@ -241,7 +241,7 @@ impl<'x> From<(String, String)> for Parameter<'x> {
     }
 }
 
-impl<'x> From<String> for Parameter<'x> {
+impl From<String> for Parameter<'_> {
     fn from(value: String) -> Self {
         Parameter {
             key: value.into(),
@@ -250,7 +250,7 @@ impl<'x> From<String> for Parameter<'x> {
     }
 }
 
-impl<'x> Display for Parameters<'x> {
+impl Display for Parameters<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if !self.params.is_empty() {
             for param in &self.params {
@@ -262,7 +262,7 @@ impl<'x> Display for Parameters<'x> {
     }
 }
 
-impl<'x> Display for Parameter<'x> {
+impl Display for Parameter<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(value) = &self.value {
             write!(f, "{}={}", self.key, value)
@@ -283,7 +283,7 @@ impl<'x> IntoMessage<'x> for Message<'x> {
 }
 
 #[cfg(feature = "builder")]
-impl<'x, 'y> IntoMessage<'x> for MessageBuilder<'y> {
+impl<'x> IntoMessage<'x> for MessageBuilder<'_> {
     fn into_message(self) -> crate::Result<Message<'x>> {
         let mut mail_from = None;
         let mut rcpt_to = std::collections::HashSet::new();

@@ -1,3 +1,9 @@
+mail-send 0.5.0
+================================
+- Bump `mail-parser` dependency to 0.10
+- Bump `mail-builder` dependency to 0.4
+- Bump `mail-auth` dependency to 0.6
+
 mail-send 0.4.9
 ================================
 - Bump `rustls` dependency to 0.23
