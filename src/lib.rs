@@ -125,15 +125,15 @@
 //!
 
 pub mod smtp;
+use std::net::IpAddr;
 use std::{fmt::Display, hash::Hash, time::Duration};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_rustls::TlsConnector;
-
-#[cfg(feature = "builder")]
-pub use mail_builder;
 
 #[cfg(feature = "dkim")]
 pub use mail_auth;
+#[cfg(feature = "builder")]
+pub use mail_builder;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_rustls::TlsConnector;
 
 #[derive(Debug)]
 pub enum Error {
@@ -201,10 +201,11 @@ pub struct SmtpClientBuilder<T: AsRef<str> + PartialEq + Eq + Hash> {
     pub tls_hostname: T,
     pub tls_implicit: bool,
     pub credentials: Option<Credentials<T>>,
-    pub addr: String,
+    pub addr: Option<IpAddr>,
     pub is_lmtp: bool,
     pub say_ehlo: bool,
     pub local_host: String,
+    pub port: u16,
 }
 
 /// SMTP client builder
