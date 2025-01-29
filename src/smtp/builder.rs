@@ -8,25 +8,30 @@
  * except according to those terms.
  */
 
+use rustls::ClientConfig;
 use smtp_proto::{EhloResponse, EXT_START_TLS};
-use std::hash::Hash;
 use std::time::Duration;
+use std::{hash::Hash, sync::Arc};
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
-use tokio_rustls::client::TlsStream;
+use tokio_rustls::{client::TlsStream, TlsConnector};
 
 use crate::{Credentials, SmtpClient, SmtpClientBuilder};
 
-use super::{tls::build_tls_connector, AssertReply};
+use super::{tls::build_tls_config, AssertReply};
 
 impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     pub fn new(hostname: T, port: u16) -> Self {
+        Self::new_with_tls_config(hostname, port, build_tls_config(false))
+    }
+
+    pub fn new_with_tls_config(hostname: T, port: u16, cfg: impl Into<Arc<ClientConfig>>) -> Self {
         SmtpClientBuilder {
             addr: format!("{}:{}", hostname.as_ref(), port),
             timeout: Duration::from_secs(60 * 60),
-            tls_connector: build_tls_connector(false),
+            tls_connector: TlsConnector::from(cfg.into()),
             tls_hostname: hostname,
             tls_implicit: true,
             is_lmtp: false,
@@ -41,7 +46,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
 
     /// Allow invalid TLS certificates
     pub fn allow_invalid_certs(mut self) -> Self {
-        self.tls_connector = build_tls_connector(true);
+        self.tls_connector = TlsConnector::from(Arc::new(build_tls_config(true)));
         self
     }
 
