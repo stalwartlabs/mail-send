@@ -239,7 +239,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                     let cnonce = {
                         use rand::RngCore;
                         let mut buf = [0u8; 16];
-                        rand::thread_rng().fill_bytes(&mut buf);
+                        rand::rng().fill_bytes(&mut buf);
                         engine::general_purpose::STANDARD.encode(buf)
                     };
 

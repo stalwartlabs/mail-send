@@ -1,3 +1,9 @@
+mail-send 0.5.1
+================================
+- Bump `mail-parser` dependency to 0.11
+- Bump `mail-auth` dependency to 0.7
+- Bump `webpki-roots` dependency to 1.0
+
 mail-send 0.5.0
 ================================
 - Bump `mail-parser` dependency to 0.10
