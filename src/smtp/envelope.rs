@@ -30,16 +30,20 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     }
 
     /// Sends a DATA command to the server.
-    pub async fn data(&mut self, message: impl AsRef<[u8]>) -> crate::Result<()> {
+    pub async fn data(&mut self, message: impl AsRef<[u8]>) -> crate::Result<String> {
         self.cmd(b"DATA\r\n").await?.assert_code(354)?;
-        tokio::time::timeout(self.timeout, async {
+        let response = tokio::time::timeout(self.timeout, async {
             // Write message
             self.write_message(message.as_ref()).await?;
             self.read().await
         })
         .await
-        .map_err(|_| crate::Error::Timeout)??
-        .assert_positive_completion()
+        .map_err(|_| crate::Error::Timeout)??;
+        if response.is_positive_completion() {
+            Ok(response.message)
+        } else {
+            Err(crate::Error::UnexpectedReply(response))
+        }
     }
 
     /// Sends a BDAT command to the server.
