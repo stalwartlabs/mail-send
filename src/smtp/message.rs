@@ -50,7 +50,7 @@ pub struct Parameter<'x> {
 
 impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     /// Sends a message to the server.
-    pub async fn send<'x>(&mut self, message: impl IntoMessage<'x>) -> crate::Result<()> {
+    pub async fn send<'x>(&mut self, message: impl IntoMessage<'x>) -> crate::Result<String> {
         // Send mail-from
         let message = message.into_message()?;
         self.mail_from(
@@ -74,7 +74,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         &mut self,
         message: impl IntoMessage<'x>,
         signer: &mail_auth::dkim::DkimSigner<V, mail_auth::dkim::Done>,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<String> {
         // Send mail-from
 
         use mail_auth::common::headers::HeaderWriter;
