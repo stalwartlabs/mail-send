@@ -10,8 +10,11 @@
 
 use smtp_proto::{EhloResponse, EXT_START_TLS};
 use std::hash::Hash;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
+use tokio::net::TcpSocket;
 use tokio::{
+    io,
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
@@ -36,6 +39,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
                 .to_string(),
             credentials: None,
             say_ehlo: true,
+            local_ip: None,
         }
     }
 
@@ -81,11 +85,53 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
         self
     }
 
+    /// Sets the local IP to use while sending the email.
+    ///
+    /// This is useful if your machine has multiple public IPs assigned and you want to ensure
+    /// that you are using the intended one. Using an IP with good repudiation is quite important
+    /// when you want to ensure deliverability.
+    ///
+    /// *NOTE:* If the IP is not available on that machine, the [`connect`] and [`connect_plain`] will return and error
+    pub fn local_ip(mut self, local_ip: IpAddr) -> Self {
+        self.local_ip = Some(local_ip);
+        self
+    }
+
+    async fn tcp_stream(&self) -> io::Result<TcpStream> {
+        if let Some(local_addr) = self.local_ip {
+            let remote_addrs = self.addr.to_socket_addrs()?;
+            let mut last_err = None;
+
+            for addr in remote_addrs {
+                let local_addr = SocketAddr::new(local_addr, 0);
+                let socket = match local_addr.ip() {
+                    IpAddr::V4(_) => TcpSocket::new_v4()?,
+                    IpAddr::V6(_) => TcpSocket::new_v6()?,
+                };
+                socket.bind(local_addr)?;
+
+                match socket.connect(addr).await {
+                    Ok(stream) => return Ok(stream),
+                    Err(e) => last_err = Some(e),
+                }
+            }
+
+            Err(last_err.unwrap_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "could not resolve to any address",
+                )
+            }))
+        } else {
+            TcpStream::connect(&self.addr).await
+        }
+    }
+
     /// Connect over TLS
     pub async fn connect(&self) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
         tokio::time::timeout(self.timeout, async {
             let mut client = SmtpClient {
-                stream: TcpStream::connect(&self.addr).await?,
+                stream: self.tcp_stream().await?,
                 timeout: self.timeout,
             };
 
@@ -133,11 +179,9 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     /// Connect over clear text (should not be used)
     pub async fn connect_plain(&self) -> crate::Result<SmtpClient<TcpStream>> {
         let mut client = SmtpClient {
-            stream: tokio::time::timeout(self.timeout, async {
-                TcpStream::connect(&self.addr).await
-            })
-            .await
-            .map_err(|_| crate::Error::Timeout)??,
+            stream: tokio::time::timeout(self.timeout, async { self.tcp_stream().await })
+                .await
+                .map_err(|_| crate::Error::Timeout)??,
             timeout: self.timeout,
         };
 

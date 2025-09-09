@@ -125,6 +125,7 @@
 //!
 
 pub mod smtp;
+use std::net::IpAddr;
 use std::{fmt::Display, hash::Hash, time::Duration};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_rustls::TlsConnector;
@@ -205,6 +206,7 @@ pub struct SmtpClientBuilder<T: AsRef<str> + PartialEq + Eq + Hash> {
     pub is_lmtp: bool,
     pub say_ehlo: bool,
     pub local_host: String,
+    pub local_ip: Option<IpAddr>,
 }
 
 /// SMTP client builder
