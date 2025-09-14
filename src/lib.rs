@@ -184,9 +184,9 @@ pub enum Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Error::Io(ref err) => err.source(),
-            Error::Tls(ref err) => err.source(),
-            Error::Base64(ref err) => err.source(),
+            Error::Io(err) => err.source(),
+            Error::Tls(err) => err.source(),
+            Error::Base64(err) => err.source(),
             _ => None,
         }
     }

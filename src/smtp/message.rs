@@ -15,8 +15,8 @@ use std::{
 
 #[cfg(feature = "builder")]
 use mail_builder::{
-    headers::{address, HeaderType},
     MessageBuilder,
+    headers::{HeaderType, address},
 };
 #[cfg(feature = "parser")]
 use mail_parser::{HeaderName, HeaderValue};
@@ -296,35 +296,34 @@ impl<'x> IntoMessage<'x> for MessageBuilder<'_> {
                         mail_from = email.to_string().into();
                     }
                 }
-            } else if key.eq_ignore_ascii_case("to")
+            } else if (key.eq_ignore_ascii_case("to")
                 || key.eq_ignore_ascii_case("cc")
-                || key.eq_ignore_ascii_case("bcc")
+                || key.eq_ignore_ascii_case("bcc"))
+                && let HeaderType::Address(addr) = value
             {
-                if let HeaderType::Address(addr) = value {
-                    match addr {
-                        address::Address::Address(addr) => {
-                            let email = addr.email.trim();
-                            if !email.is_empty() {
-                                rcpt_to.insert(email.to_string());
-                            }
+                match addr {
+                    address::Address::Address(addr) => {
+                        let email = addr.email.trim();
+                        if !email.is_empty() {
+                            rcpt_to.insert(email.to_string());
                         }
-                        address::Address::Group(group) => {
-                            for addr in &group.addresses {
-                                if let address::Address::Address(addr) = addr {
-                                    let email = addr.email.trim();
-                                    if !email.is_empty() {
-                                        rcpt_to.insert(email.to_string());
-                                    }
+                    }
+                    address::Address::Group(group) => {
+                        for addr in &group.addresses {
+                            if let address::Address::Address(addr) = addr {
+                                let email = addr.email.trim();
+                                if !email.is_empty() {
+                                    rcpt_to.insert(email.to_string());
                                 }
                             }
                         }
-                        address::Address::List(list) => {
-                            for addr in list {
-                                if let address::Address::Address(addr) = addr {
-                                    let email = addr.email.trim();
-                                    if !email.is_empty() {
-                                        rcpt_to.insert(email.to_string());
-                                    }
+                    }
+                    address::Address::List(list) => {
+                        for addr in list {
+                            if let address::Address::Address(addr) = addr {
+                                let email = addr.email.trim();
+                                if !email.is_empty() {
+                                    rcpt_to.insert(email.to_string());
                                 }
                             }
                         }

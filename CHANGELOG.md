@@ -1,3 +1,7 @@
+mail-send 0.5.2
+================================
+- Add an option to choose the sending IP (#41)
+
 mail-send 0.5.1
 ================================
 - Bump `mail-parser` dependency to 0.11
