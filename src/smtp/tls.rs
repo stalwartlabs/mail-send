@@ -1,26 +1,19 @@
 /*
- * Copyright Stalwart Labs Ltd.
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
- * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
- * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
- * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
- * option. This file may not be copied, modified, or distributed
- * except according to those terms.
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
-use std::{convert::TryFrom, io, sync::Arc};
-
+use super::AssertReply;
+use crate::{Error, SmtpClient};
 use rustls::{
-    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     ClientConfig, ClientConnection, RootCertStore, SignatureScheme,
+    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
 };
 use rustls_pki_types::{ServerName, TrustAnchor};
+use std::{convert::TryFrom, io, sync::Arc};
 use tokio::net::TcpStream;
-use tokio_rustls::{client::TlsStream, TlsConnector};
-
-use crate::{Error, SmtpClient};
-
-use super::AssertReply;
+use tokio_rustls::{TlsConnector, client::TlsStream};
 
 impl SmtpClient<TcpStream> {
     /// Upgrade the connection to TLS.

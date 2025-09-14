@@ -1,19 +1,15 @@
 /*
- * Copyright Stalwart Labs Ltd.
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
- * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
- * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
- * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
- * option. This file may not be copied, modified, or distributed
- * except according to those terms.
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
 use std::{fmt::Display, hash::Hash};
 
-use base64::{engine, Engine};
+use base64::{Engine, engine};
 use smtp_proto::{
-    response::generate::BitToString, EhloResponse, AUTH_CRAM_MD5, AUTH_DIGEST_MD5, AUTH_LOGIN,
-    AUTH_OAUTHBEARER, AUTH_PLAIN, AUTH_XOAUTH2,
+    AUTH_CRAM_MD5, AUTH_DIGEST_MD5, AUTH_LOGIN, AUTH_OAUTHBEARER, AUTH_PLAIN, AUTH_XOAUTH2,
+    EhloResponse, response::generate::BitToString,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 

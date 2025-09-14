@@ -107,4 +107,4 @@ at your option.
 
 ## Copyright
 
-Copyright (C) 2020-2022, Stalwart Labs Ltd.
+Copyright (C) 2020, Stalwart Labs LLC
