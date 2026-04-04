@@ -50,6 +50,7 @@ async fn main() {
     // Connect to an SMTP relay server over TLS.
     // Signs each message with the configured DKIM signer.
     SmtpClientBuilder::new("smtp.gmail.com", 465)
+        .unwrap()
         .connect()
         .await
         .unwrap()

@@ -7,10 +7,11 @@
 use super::AssertReply;
 use crate::{Error, SmtpClient};
 use rustls::{
-    ClientConfig, ClientConnection, RootCertStore, SignatureScheme,
+    ClientConfig, ClientConnection, SignatureScheme,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
 };
-use rustls_pki_types::{ServerName, TrustAnchor};
+use rustls_pki_types::ServerName;
+use rustls_platform_verifier::BuilderVerifierExt;
 use std::{convert::TryFrom, io, sync::Arc};
 use tokio::net::TcpStream;
 use tokio_rustls::{TlsConnector, client::TlsStream};
@@ -70,19 +71,12 @@ impl SmtpClient<TlsStream<TcpStream>> {
     }
 }
 
-pub fn build_tls_connector(allow_invalid_certs: bool) -> TlsConnector {
+pub fn build_tls_connector(allow_invalid_certs: bool) -> Result<TlsConnector, String> {
     let config = if !allow_invalid_certs {
-        let mut root_cert_store = RootCertStore::empty();
-
-        root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| TrustAnchor {
-            subject: ta.subject.clone(),
-            subject_public_key_info: ta.subject_public_key_info.clone(),
-            name_constraints: ta.name_constraints.clone(),
-        }));
-
         ClientConfig::builder()
-            .with_root_certificates(root_cert_store)
-            .with_no_client_auth()
+            .with_platform_verifier()
+            .map(|config| config.with_no_client_auth())
+            .map_err(|err| format!("Failed to build platform verifier: {err}"))?
     } else {
         ClientConfig::builder()
             .dangerous()
@@ -90,7 +84,7 @@ pub fn build_tls_connector(allow_invalid_certs: bool) -> TlsConnector {
             .with_no_client_auth()
     };
 
-    TlsConnector::from(Arc::new(config))
+    Ok(TlsConnector::from(Arc::new(config)))
 }
 
 #[doc(hidden)]

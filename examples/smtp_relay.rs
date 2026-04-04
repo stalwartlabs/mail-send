@@ -22,6 +22,7 @@ async fn main() {
     // Connect to an SMTP relay server.
     // The library will upgrade the connection to TLS if the server supports it.
     SmtpClientBuilder::new("mail.smtp2go.com", 2525)
+        .unwrap()
         .implicit_tls(false)
         .connect()
         .await

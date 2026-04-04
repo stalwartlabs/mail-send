@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use smtp_proto::{response::parser::ResponseReceiver, Response};
+use smtp_proto::{Response, response::parser::ResponseReceiver};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpSocket, TcpStream},
@@ -158,12 +158,14 @@ mod test {
         // StartTLS test
         env_logger::init();
         let client = SmtpClientBuilder::new("mail.smtp2go.com", 2525)
+            .unwrap()
             .implicit_tls(false)
             .connect()
             .await
             .unwrap();
         client.quit().await.unwrap();
         let client = SmtpClientBuilder::new("mail.smtp2go.com", 2525)
+            .unwrap()
             .allow_invalid_certs()
             .implicit_tls(false)
             .connect()
@@ -173,6 +175,7 @@ mod test {
 
         // Say hello to Google over TLS and quit
         let client = SmtpClientBuilder::new("smtp.gmail.com", 465)
+            .unwrap()
             .connect()
             .await
             .unwrap();
@@ -180,6 +183,7 @@ mod test {
 
         // Say hello to Google over TLS and quit
         let client = SmtpClientBuilder::new("smtp.gmail.com", 465)
+            .unwrap()
             .allow_invalid_certs()
             .connect()
             .await

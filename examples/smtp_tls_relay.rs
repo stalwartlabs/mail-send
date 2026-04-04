@@ -21,6 +21,7 @@ async fn main() {
 
     // Connect to an SMTP relay server over TLS
     SmtpClientBuilder::new("smtp.gmail.com", 465)
+        .unwrap()
         .connect()
         .await
         .unwrap()

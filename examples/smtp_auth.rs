@@ -25,6 +25,7 @@ async fn main() {
     // Connect to the SMTP submissions port, upgrade to TLS and
     // authenticate using the provided credentials.
     SmtpClientBuilder::new("smtp.gmail.com", 587)
+        .unwrap()
         .implicit_tls(false)
         .credentials(("john", "p4ssw0rd"))
         .connect()

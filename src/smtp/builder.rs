@@ -4,7 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
-use smtp_proto::{EhloResponse, EXT_START_TLS};
+use super::{AssertReply, tls::build_tls_connector};
+use crate::{Credentials, SmtpClient, SmtpClientBuilder};
+use smtp_proto::{EXT_START_TLS, EhloResponse};
 use std::hash::Hash;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
@@ -16,16 +18,12 @@ use tokio::{
 };
 use tokio_rustls::client::TlsStream;
 
-use crate::{Credentials, SmtpClient, SmtpClientBuilder};
-
-use super::{tls::build_tls_connector, AssertReply};
-
 impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
-    pub fn new(hostname: T, port: u16) -> Self {
-        SmtpClientBuilder {
+    pub fn new(hostname: T, port: u16) -> Result<Self, String> {
+        Ok(SmtpClientBuilder {
             addr: format!("{}:{}", hostname.as_ref(), port),
             timeout: Duration::from_secs(60 * 60),
-            tls_connector: build_tls_connector(false),
+            tls_connector: build_tls_connector(false)?,
             tls_hostname: hostname,
             tls_implicit: true,
             is_lmtp: false,
@@ -36,12 +34,12 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
             credentials: None,
             say_ehlo: true,
             local_ip: None,
-        }
+        })
     }
 
     /// Allow invalid TLS certificates
     pub fn allow_invalid_certs(mut self) -> Self {
-        self.tls_connector = build_tls_connector(true);
+        self.tls_connector = build_tls_connector(true).unwrap();
         self
     }
 
