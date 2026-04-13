@@ -1,3 +1,7 @@
+mail-send 0.6.0
+================================
+- Use `rustls-platform-verifier` for TLS certificate verification.
+
 mail-send 0.5.2
 ================================
 - Add an option to choose the sending IP (#41)
