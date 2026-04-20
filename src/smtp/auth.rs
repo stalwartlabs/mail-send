@@ -114,17 +114,17 @@ pub enum Error {
 
 impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
     /// Creates a new `Credentials` instance.
-    pub fn new(username: T, secret: T) -> Credentials<T> {
+    pub fn new(username: T, secret: T) -> Self {
         Credentials::Plain { username, secret }
     }
 
     /// Creates a new XOAuth2 `Credentials` instance.
-    pub fn new_xoauth2(username: T, secret: T) -> Credentials<T> {
+    pub fn new_xoauth2(username: T, secret: T) -> Self {
         Credentials::XOauth2 { username, secret }
     }
 
     /// Creates a new OAuthBearer `Credentials` instance.
-    pub fn new_oauth(payload: T) -> Credentials<T> {
+    pub fn new_oauth(payload: T) -> Self {
         Credentials::OAuthBearer { token: payload }
     }
 
