@@ -98,6 +98,50 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         self.data(&signed_message).await
     }
 
+    /// Sends a message to the server, signing it with DKIM2.
+    #[cfg(feature = "dkim")]
+    pub async fn send_signed_dkim2<'x>(
+        &mut self,
+        message: impl IntoMessage<'x>,
+        signer: &mail_auth::dkim2::Dkim2Signer<mail_auth::dkim2::Done>,
+    ) -> crate::Result<()> {
+        use mail_auth::common::headers::HeaderWriter;
+        use mail_auth::dkim2::Hop;
+
+        // Send mail-from
+        let message = message.into_message()?;
+        self.mail_from(
+            message.mail_from.email.as_ref(),
+            &message.mail_from.parameters,
+        )
+        .await?;
+
+        // Send rcpt-to
+        for rcpt in &message.rcpt_to {
+            self.rcpt_to(rcpt.email.as_ref(), &rcpt.parameters).await?;
+        }
+
+        // Sign message, binding the signature to this SMTP hop
+        let signed = signer
+            .sign(
+                message.body.as_ref(),
+                Hop::real(
+                    message.mail_from.email.as_ref(),
+                    message.rcpt_to.iter().map(|rcpt| rcpt.email.as_ref()),
+                ),
+            )
+            .map_err(|_| crate::Error::MissingCredentials)?;
+        let mut signed_message = Vec::with_capacity(message.body.len() + 64);
+        signed.signature.write_header(&mut signed_message);
+        if let Some(instance) = &signed.message_instance {
+            instance.write_header(&mut signed_message);
+        }
+        signed_message.extend_from_slice(message.body.as_ref());
+
+        // Send message
+        self.data(&signed_message).await
+    }
+
     pub async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
         // Transparency procedure
         let mut is_cr_or_lf = false;

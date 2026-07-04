@@ -6,7 +6,7 @@
 
 use mail_auth::{
     common::crypto::{RsaKey, Sha256},
-    dkim::DkimSigner,
+    dkim2::Dkim2Signer,
 };
 use mail_builder::MessageBuilder;
 use mail_send::SmtpClientBuilder;
@@ -31,8 +31,6 @@ GMot/L2x0IYyMLAz6oLWh2hm7zwtb0CgOrPo1ke44hFYnfc=
 #[tokio::main]
 async fn main() {
     // Build a simple text message with a single attachment
-    // More examples of how to build messages available at
-    // https://github.com/stalwartlabs/mail-builder/tree/main/examples
     let message = MessageBuilder::new()
         .from(("John Doe", "john@example.com"))
         .to("jane@example.com")
@@ -44,20 +42,19 @@ async fn main() {
     let pk_rsa =
         RsaKey::<Sha256>::from_key_der(PrivateKeyDer::from_pem_slice(TEST_KEY.as_bytes()).unwrap())
             .unwrap();
-    let signer = DkimSigner::from_key(pk_rsa)
+    let signer = Dkim2Signer::from_key(pk_rsa)
         .domain("example.com")
-        .selector("default")
-        .headers(["From", "To", "Subject"])
-        .expiration(60 * 60 * 7); // Number of seconds before this signature expires (optional)
+        .selector("default");
 
     // Connect to an SMTP relay server over TLS.
-    // Signs each message with the configured DKIM signer.
+    // Signs each message with the configured DKIM2 signer, binding the
+    // signature to the SMTP envelope of this hop.
     SmtpClientBuilder::new("smtp.gmail.com", 465)
         .unwrap()
         .connect()
         .await
         .unwrap()
-        .send_signed(message, &signer)
+        .send_signed_dkim2(message, &signer)
         .await
         .unwrap();
 }

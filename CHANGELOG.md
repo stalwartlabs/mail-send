@@ -1,3 +1,8 @@
+mail-send 0.6.1
+================================
+- DKIM2 support.
+- Bump `mail-auth` dependency to 0.11
+
 mail-send 0.6.0
 ================================
 - Use `rustls-platform-verifier` for TLS certificate verification.
