@@ -5,8 +5,8 @@
  */
 
 use smtp_proto::{
-    response::parser::{ResponseReceiver, MAX_RESPONSE_LENGTH},
     EhloResponse,
+    response::parser::{MAX_RESPONSE_LENGTH, ResponseReceiver},
 };
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 

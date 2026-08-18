@@ -1,3 +1,8 @@
+mail-send 0.6.2
+================================
+- Bump `mail-builder` dependency to 0.5.
+- Bump `mail-auth` dependency to 0.12.
+
 mail-send 0.6.1
 ================================
 - DKIM2 support.
