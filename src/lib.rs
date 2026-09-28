@@ -27,7 +27,7 @@ pub enum Error {
     Tls(Box<rustls::Error>),
 
     /// Base64 decode error
-    Base64(base64::DecodeError),
+    Base64(encodify::Error),
 
     // SMTP authentication error.
     Auth(smtp::auth::Error),
@@ -143,8 +143,8 @@ impl From<std::io::Error> for Error {
     }
 }
 
-impl From<base64::DecodeError> for Error {
-    fn from(err: base64::DecodeError) -> Self {
+impl From<encodify::Error> for Error {
+    fn from(err: encodify::Error) -> Self {
         Error::Base64(err)
     }
 }
