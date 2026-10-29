@@ -1,12 +1,7 @@
 /*
- * Copyright Stalwart Labs Ltd. See the COPYING
- * file at the top-level directory of this distribution.
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
- * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
- * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
- * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
- * option. This file may not be copied, modified, or distributed
- * except according to those terms.
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
 use mail_auth::{
@@ -15,6 +10,7 @@ use mail_auth::{
 };
 use mail_builder::MessageBuilder;
 use mail_send::SmtpClientBuilder;
+use rustls_pki_types::{PrivateKeyDer, pem::PemObject};
 
 const TEST_KEY: &str = r#"-----BEGIN RSA PRIVATE KEY-----
 MIICXwIBAAKBgQDwIRP/UC3SBsEmGqZ9ZJW3/DkMoGeLnQg1fWn7/zYtIxN2SnFC
@@ -45,7 +41,9 @@ async fn main() {
         .attachment("image/png", "pretzels.png", [1, 2, 3, 4].as_ref());
 
     // Sign an e-mail message using RSA-SHA256
-    let pk_rsa = RsaKey::<Sha256>::from_rsa_pem(TEST_KEY).unwrap();
+    let pk_rsa =
+        RsaKey::<Sha256>::from_key_der(PrivateKeyDer::from_pem_slice(TEST_KEY.as_bytes()).unwrap())
+            .unwrap();
     let signer = DkimSigner::from_key(pk_rsa)
         .domain("example.com")
         .selector("default")
@@ -55,6 +53,7 @@ async fn main() {
     // Connect to an SMTP relay server over TLS.
     // Signs each message with the configured DKIM signer.
     SmtpClientBuilder::new("smtp.gmail.com", 465)
+        .unwrap()
         .connect()
         .await
         .unwrap()

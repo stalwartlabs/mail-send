@@ -9,7 +9,8 @@ _mail-send_ is a Rust library to build, sign and send e-mail messages via SMTP. 
 
 - Generates **e-mail** messages conforming to the Internet Message Format standard (_RFC 5322_).
 - Full **MIME** support (_RFC 2045 - 2049_) with automatic selection of the most optimal encoding for each message body part.
-- DomainKeys Identified Mail (**DKIM**) Signatures (_RFC 6376_) with ED25519-SHA256, RSA-SHA256 and RSA-SHA1 support.
+- **DKIMv1** (DomainKeys Identified Mail) Signatures (_RFC 6376_) with ED25519-SHA256, RSA-SHA256 and RSA-SHA1 support.
+- **DKIMv2** Signatures with per-hop envelope binding.
 - Simple Mail Transfer Protocol (**SMTP**; _RFC 5321_) delivery.
 - SMTP Service Extension for Secure SMTP over **TLS** (_RFC 3207_).
 - SMTP Service Extension for Authentication (_RFC 4954_) with automatic mechanism negotiation (from most secure to least secure):
@@ -25,8 +26,7 @@ _mail-send_ is a Rust library to build, sign and send e-mail messages via SMTP. 
 Send a message via an SMTP server that requires authentication:
 
 ```rust
-    use mail_send::SmtpClientBuilder;
-    use mail_builder::MessageBuilder;
+    use mail_send::{SmtpClientBuilder, mail_builder::MessageBuilder};
 
     // Build a simple multipart message
     let message = MessageBuilder::new()
@@ -42,6 +42,7 @@ Send a message via an SMTP server that requires authentication:
     // Connect to the SMTP submissions port, upgrade to TLS and
     // authenticate using the provided credentials.
     SmtpClientBuilder::new("smtp.gmail.com", 587)
+        .unwrap()
         .implicit_tls(false)
         .credentials(("john", "p4ssw0rd"))
         .connect()
@@ -55,8 +56,15 @@ Send a message via an SMTP server that requires authentication:
 Sign a message with DKIM and send it via an SMTP relay server:
 
 ```rust
-    use mail_send::SmtpClientBuilder;
-    use mail_builder::MessageBuilder;
+    use mail_send::{
+        SmtpClientBuilder,
+        mail_auth::{
+            common::crypto::{RsaKey, Sha256},
+            dkim::DkimSigner,
+        },
+        mail_builder::MessageBuilder,
+    };
+    use rustls_pki_types::{PrivateKeyDer, pem::PemObject};
 
     // Build a simple text message with a single attachment
     let message = MessageBuilder::new()
@@ -67,7 +75,9 @@ Sign a message with DKIM and send it via an SMTP relay server:
         .attachment("image/png", "pretzels.png", [1, 2, 3, 4].as_ref());
 
     // Sign an e-mail message using RSA-SHA256
-    let pk_rsa = RsaKey::<Sha256>::from_rsa_pem(TEST_KEY).unwrap();
+    let pk_rsa =
+        RsaKey::<Sha256>::from_key_der(PrivateKeyDer::from_pem_slice(TEST_KEY.as_bytes()).unwrap())
+            .unwrap();
     let signer = DkimSigner::from_key(pk_rsa)
         .domain("example.com")
         .selector("default")
@@ -77,10 +87,52 @@ Sign a message with DKIM and send it via an SMTP relay server:
     // Connect to an SMTP relay server over TLS.
     // Signs each message with the configured DKIM signer.
     SmtpClientBuilder::new("smtp.gmail.com", 465)
+        .unwrap()
         .connect()
         .await
         .unwrap()
         .send_signed(message, &signer)
+        .await
+        .unwrap();
+```
+
+Sign a message with DKIM2 and send it via an SMTP relay server:
+
+```rust
+    use mail_send::{
+        SmtpClientBuilder,
+        mail_auth::{
+            common::crypto::{RsaKey, Sha256},
+            dkim2::Dkim2Signer,
+        },
+        mail_builder::MessageBuilder,
+    };
+    use rustls_pki_types::{PrivateKeyDer, pem::PemObject};
+
+    // Build a simple text message
+    let message = MessageBuilder::new()
+        .from(("John Doe", "john@example.com"))
+        .to("jane@example.com")
+        .subject("Howdy!")
+        .text_body("These pretzels are making me thirsty.");
+
+    // Sign an e-mail message using RSA-SHA256
+    let pk_rsa =
+        RsaKey::<Sha256>::from_key_der(PrivateKeyDer::from_pem_slice(TEST_KEY.as_bytes()).unwrap())
+            .unwrap();
+    let signer = Dkim2Signer::from_key(pk_rsa)
+        .domain("example.com")
+        .selector("default");
+
+    // Connect to an SMTP relay server over TLS.
+    // Signs each message with the configured DKIM2 signer, binding the
+    // signature to the SMTP envelope of this hop.
+    SmtpClientBuilder::new("smtp.gmail.com", 465)
+        .unwrap()
+        .connect()
+        .await
+        .unwrap()
+        .send_signed_dkim2(message, &signer)
         .await
         .unwrap();
 ```
@@ -113,4 +165,4 @@ at your option.
 
 ## Copyright
 
-Copyright (C) 2020-2022, Stalwart Labs Ltd.
+Copyright (C) 2020, Stalwart Labs LLC

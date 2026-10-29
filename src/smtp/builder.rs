@@ -1,32 +1,29 @@
 /*
- * Copyright Stalwart Labs Ltd.
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
- * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
- * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
- * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
- * option. This file may not be copied, modified, or distributed
- * except according to those terms.
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
-use smtp_proto::{EhloResponse, EXT_START_TLS};
+use super::{AssertReply, tls::build_tls_connector};
+use crate::{Credentials, SmtpClient, SmtpClientBuilder};
+use smtp_proto::{EXT_START_TLS, EhloResponse};
 use std::hash::Hash;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
+use tokio::net::TcpSocket;
 use tokio::{
+    io,
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
 use tokio_rustls::client::TlsStream;
 
-use crate::{Credentials, SmtpClient, SmtpClientBuilder};
-
-use super::{tls::build_tls_connector, AssertReply};
-
 impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
-    pub fn new(hostname: T, port: u16) -> Self {
-        SmtpClientBuilder {
+    pub fn new(hostname: T, port: u16) -> Result<Self, String> {
+        Ok(SmtpClientBuilder {
             addr: format!("{}:{}", hostname.as_ref(), port),
             timeout: Duration::from_secs(60 * 60),
-            tls_connector: build_tls_connector(false),
+            tls_connector: build_tls_connector(false)?,
             tls_hostname: hostname,
             tls_implicit: true,
             is_lmtp: false,
@@ -35,12 +32,14 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
                 .unwrap_or("[127.0.0.1]")
                 .to_string(),
             credentials: None,
-        }
+            say_ehlo: true,
+            local_ip: None,
+        })
     }
 
     /// Allow invalid TLS certificates
     pub fn allow_invalid_certs(mut self) -> Self {
-        self.tls_connector = build_tls_connector(true);
+        self.tls_connector = build_tls_connector(true).unwrap();
         self
     }
 
@@ -53,6 +52,12 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     /// Use LMTP instead of SMTP
     pub fn lmtp(mut self, is_lmtp: bool) -> Self {
         self.is_lmtp = is_lmtp;
+        self
+    }
+
+    // Say EHLO/LHLO
+    pub fn say_ehlo(mut self, say_ehlo: bool) -> Self {
+        self.say_ehlo = say_ehlo;
         self
     }
 
@@ -74,12 +79,53 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
         self
     }
 
+    /// Sets the local IP to use while sending the email.
+    ///
+    /// This is useful if your machine has multiple public IPs assigned and you want to ensure
+    /// that you are using the intended one. Using an IP with good repudiation is quite important
+    /// when you want to ensure deliverability.
+    ///
+    /// *NOTE:* If the IP is not available on that machine, the [`connect`] and [`connect_plain`] will return and error
+    pub fn local_ip(mut self, local_ip: IpAddr) -> Self {
+        self.local_ip = Some(local_ip);
+        self
+    }
+
+    async fn tcp_stream(&self) -> io::Result<TcpStream> {
+        if let Some(local_addr) = self.local_ip {
+            let remote_addrs = self.addr.to_socket_addrs()?;
+            let mut last_err = None;
+
+            for addr in remote_addrs {
+                let local_addr = SocketAddr::new(local_addr, 0);
+                let socket = match local_addr.ip() {
+                    IpAddr::V4(_) => TcpSocket::new_v4()?,
+                    IpAddr::V6(_) => TcpSocket::new_v6()?,
+                };
+                socket.bind(local_addr)?;
+
+                match socket.connect(addr).await {
+                    Ok(stream) => return Ok(stream),
+                    Err(e) => last_err = Some(e),
+                }
+            }
+
+            Err(last_err.unwrap_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "could not resolve to any address",
+                )
+            }))
+        } else {
+            TcpStream::connect(&self.addr).await
+        }
+    }
+
     /// Connect over TLS
-    #[allow(unused_mut)]
     pub async fn connect(&self) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
         tokio::time::timeout(self.timeout, async {
             let mut client = SmtpClient {
-                stream: TcpStream::connect(&self.addr).await?,
+                stream: self.tcp_stream().await?,
                 timeout: self.timeout,
             };
 
@@ -109,11 +155,9 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
                 }
             };
 
-            #[cfg(not(feature = "skip-ehlo"))]
-            {
+            if self.say_ehlo {
                 // Obtain capabilities
                 let capabilities = client.capabilities(&self.local_host, self.is_lmtp).await?;
-
                 // Authenticate
                 if let Some(credentials) = &self.credentials {
                     client.authenticate(&credentials, &capabilities).await?;
@@ -127,25 +171,20 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     }
 
     /// Connect over clear text (should not be used)
-    #[allow(unused_mut)]
     pub async fn connect_plain(&self) -> crate::Result<SmtpClient<TcpStream>> {
         let mut client = SmtpClient {
-            stream: tokio::time::timeout(self.timeout, async {
-                TcpStream::connect(&self.addr).await
-            })
-            .await
-            .map_err(|_| crate::Error::Timeout)??,
+            stream: tokio::time::timeout(self.timeout, async { self.tcp_stream().await })
+                .await
+                .map_err(|_| crate::Error::Timeout)??,
             timeout: self.timeout,
         };
 
         // Read greeting
         client.read().await?.assert_positive_completion()?;
 
-        #[cfg(not(feature = "skip-ehlo"))]
-        {
+        if self.say_ehlo {
             // Obtain capabilities
             let capabilities = client.capabilities(&self.local_host, self.is_lmtp).await?;
-
             // Authenticate
             if let Some(credentials) = &self.credentials {
                 client.authenticate(&credentials, &capabilities).await?;
