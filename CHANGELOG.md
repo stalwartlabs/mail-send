@@ -3,6 +3,7 @@ mail-send 0.7.0
 - `send`, `send_signed`, `send_signed_dkim2`, `data` and `bdat` return the server's final reply, which includes the queue ID (#24, #40).
 - `IntoMessage` is implemented for `&mail_parser::Message` instead of `mail_parser::Message`, borrowing the raw message.
 - Add `SmtpClientBuilder::new_with_tls_connector` to use a custom TLS connector without a process-level `CryptoProvider` (#37).
+- Use `Self` as the return type of the `Credentials` constructors (#19).
 - Bump `mail-auth` dependency to 0.14.
 - Bump `mail-builder` dependency to 2.0.
 - Bump `mail-parser` dependency to 1.0.
