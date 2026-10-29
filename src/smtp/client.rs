@@ -1,11 +1,7 @@
 /*
- * Copyright Stalwart Labs Ltd.
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
- * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
- * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
- * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
- * option. This file may not be copied, modified, or distributed
- * except according to those terms.
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
 use std::{
@@ -13,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use smtp_proto::{response::parser::ResponseReceiver, Response};
+use smtp_proto::{Response, response::parser::ResponseReceiver};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpSocket, TcpStream},
@@ -160,7 +156,17 @@ mod test {
     #[tokio::test]
     async fn smtp_basic() {
         // StartTLS test
+        env_logger::init();
         let client = SmtpClientBuilder::new("mail.smtp2go.com", 2525)
+            .unwrap()
+            .implicit_tls(false)
+            .connect()
+            .await
+            .unwrap();
+        client.quit().await.unwrap();
+        let client = SmtpClientBuilder::new("mail.smtp2go.com", 2525)
+            .unwrap()
+            .allow_invalid_certs()
             .implicit_tls(false)
             .connect()
             .await
@@ -169,6 +175,16 @@ mod test {
 
         // Say hello to Google over TLS and quit
         let client = SmtpClientBuilder::new("smtp.gmail.com", 465)
+            .unwrap()
+            .connect()
+            .await
+            .unwrap();
+        client.quit().await.unwrap();
+
+        // Say hello to Google over TLS and quit
+        let client = SmtpClientBuilder::new("smtp.gmail.com", 465)
+            .unwrap()
+            .allow_invalid_certs()
             .connect()
             .await
             .unwrap();
@@ -217,6 +233,27 @@ mod test {
 
     #[tokio::test]
     async fn transparency_procedure() {
+        const SMUGGLER: &str = r#"From: Joe SixPack <john@foobar.net>
+To: Suzie Q <suzie@foobar.org>
+Subject: Is dinner ready?
+
+Hi.
+
+We lost the game. Are you hungry yet?
+
+Joe.
+
+<SEP>.
+MAIL FROM:<admin@foobar.net>
+RCPT TO:<ok@foobar.org>
+DATA
+From: Joe SixPack <admin@foobar.net>
+To: Suzie Q <suzie@foobar.org>
+Subject: smuggled message
+
+This is a smuggled message
+"#;
+
         for (test, result) in [
             (
                 "A: b\r\n.\r\n".to_string(),
@@ -228,6 +265,36 @@ mod test {
                 "A: b\r\n...\r\n\r\n.\r\n".to_string(),
             ),
             ("A: ...b".to_string(), "A: ...b\r\n.\r\n".to_string()),
+            (
+                "A: \n.\r\nMAIL FROM:<>".to_string(),
+                "A: \n..\r\nMAIL FROM:<>\r\n.\r\n".to_string(),
+            ),
+            (
+                "A: \r.\r\nMAIL FROM:<>".to_string(),
+                "A: \r..\r\nMAIL FROM:<>\r\n.\r\n".to_string(),
+            ),
+            (
+                SMUGGLER
+                    .replace('\r', "")
+                    .replace('\n', "\r\n")
+                    .replace("<SEP>", "\r"),
+                SMUGGLER
+                    .replace('\r', "")
+                    .replace('\n', "\r\n")
+                    .replace("<SEP>", "\r.")
+                    + "\r\n.\r\n",
+            ),
+            (
+                SMUGGLER
+                    .replace('\r', "")
+                    .replace('\n', "\r\n")
+                    .replace("<SEP>", "\n"),
+                SMUGGLER
+                    .replace('\r', "")
+                    .replace('\n', "\r\n")
+                    .replace("<SEP>", "\n.")
+                    + "\r\n.\r\n",
+            ),
         ] {
             let mut client = SmtpClient {
                 stream: AsyncBufWriter::default(),

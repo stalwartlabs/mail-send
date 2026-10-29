@@ -1,11 +1,7 @@
 /*
- * Copyright Stalwart Labs Ltd.
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
- * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
- * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
- * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
- * option. This file may not be copied, modified, or distributed
- * except according to those terms.
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
 use std::{
@@ -15,32 +11,34 @@ use std::{
 
 #[cfg(feature = "builder")]
 use mail_builder::{
-    headers::{address, HeaderType},
     MessageBuilder,
+    headers::{HeaderType, address},
 };
+#[cfg(feature = "parser")]
+use mail_parser::{HeaderName, HeaderValue};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::SmtpClient;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Message<'x> {
     pub mail_from: Address<'x>,
     pub rcpt_to: Vec<Address<'x>>,
     pub body: Cow<'x, [u8]>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Address<'x> {
     pub email: Cow<'x, str>,
     pub parameters: Parameters<'x>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Parameters<'x> {
     params: Vec<Parameter<'x>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Parameter<'x> {
     key: Cow<'x, str>,
     value: Option<Cow<'x, str>>,
@@ -100,31 +98,71 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         self.data(&signed_message).await
     }
 
-    pub async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
-        // Transparency procedure
-        #[derive(Debug)]
-        enum State {
-            Cr,
-            CrLf,
-            Init,
+    /// Sends a message to the server, signing it with DKIM2.
+    #[cfg(feature = "dkim")]
+    pub async fn send_signed_dkim2<'x>(
+        &mut self,
+        message: impl IntoMessage<'x>,
+        signer: &mail_auth::dkim2::Dkim2Signer<mail_auth::dkim2::Done>,
+    ) -> crate::Result<()> {
+        use mail_auth::common::headers::HeaderWriter;
+        use mail_auth::dkim2::Hop;
+
+        // Send mail-from
+        let message = message.into_message()?;
+        self.mail_from(
+            message.mail_from.email.as_ref(),
+            &message.mail_from.parameters,
+        )
+        .await?;
+
+        // Send rcpt-to
+        for rcpt in &message.rcpt_to {
+            self.rcpt_to(rcpt.email.as_ref(), &rcpt.parameters).await?;
         }
 
-        let mut state = State::Init;
+        // Sign message, binding the signature to this SMTP hop
+        let signed = signer
+            .sign(
+                message.body.as_ref(),
+                Hop::real(
+                    message.mail_from.email.as_ref(),
+                    message.rcpt_to.iter().map(|rcpt| rcpt.email.as_ref()),
+                ),
+            )
+            .map_err(|_| crate::Error::MissingCredentials)?;
+        let mut signed_message = Vec::with_capacity(message.body.len() + 64);
+        signed.signature.write_header(&mut signed_message);
+        if let Some(instance) = &signed.message_instance {
+            instance.write_header(&mut signed_message);
+        }
+        signed_message.extend_from_slice(message.body.as_ref());
+
+        // Send message
+        self.data(&signed_message).await
+    }
+
+    pub async fn write_message(&mut self, message: &[u8]) -> tokio::io::Result<()> {
+        // Transparency procedure
+        let mut is_cr_or_lf = false;
+
+        // As per RFC 5322bis, section 2.3:
+        // CR and LF MUST only occur together as CRLF; they MUST NOT appear
+        // independently in the body.
+        // For this reason, we apply the transparency procedure when there is
+        // a CR or LF followed by a dot.
+
         let mut last_pos = 0;
         for (pos, byte) in message.iter().enumerate() {
-            if *byte == b'.' && matches!(state, State::CrLf) {
+            if *byte == b'.' && is_cr_or_lf {
                 if let Some(bytes) = message.get(last_pos..pos) {
                     self.stream.write_all(bytes).await?;
                     self.stream.write_all(b".").await?;
                     last_pos = pos;
                 }
-                state = State::Init;
-            } else if *byte == b'\r' {
-                state = State::Cr;
-            } else if *byte == b'\n' && matches!(state, State::Cr) {
-                state = State::CrLf;
+                is_cr_or_lf = false;
             } else {
-                state = State::Init;
+                is_cr_or_lf = *byte == b'\n' || *byte == b'\r';
             }
         }
         if let Some(bytes) = message.get(last_pos..) {
@@ -187,7 +225,7 @@ impl<'x> From<&'x str> for Address<'x> {
     }
 }
 
-impl<'x> From<String> for Address<'x> {
+impl From<String> for Address<'_> {
     fn from(email: String) -> Self {
         Address {
             email: email.into(),
@@ -234,7 +272,7 @@ impl<'x> From<(&'x str, &'x str)> for Parameter<'x> {
     }
 }
 
-impl<'x> From<(String, String)> for Parameter<'x> {
+impl From<(String, String)> for Parameter<'_> {
     fn from(value: (String, String)) -> Self {
         Parameter {
             key: value.0.into(),
@@ -243,7 +281,7 @@ impl<'x> From<(String, String)> for Parameter<'x> {
     }
 }
 
-impl<'x> From<String> for Parameter<'x> {
+impl From<String> for Parameter<'_> {
     fn from(value: String) -> Self {
         Parameter {
             key: value.into(),
@@ -252,7 +290,7 @@ impl<'x> From<String> for Parameter<'x> {
     }
 }
 
-impl<'x> Display for Parameters<'x> {
+impl Display for Parameters<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if !self.params.is_empty() {
             for param in &self.params {
@@ -264,7 +302,7 @@ impl<'x> Display for Parameters<'x> {
     }
 }
 
-impl<'x> Display for Parameter<'x> {
+impl Display for Parameter<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(value) = &self.value {
             write!(f, "{}={}", self.key, value)
@@ -285,7 +323,7 @@ impl<'x> IntoMessage<'x> for Message<'x> {
 }
 
 #[cfg(feature = "builder")]
-impl<'x, 'y> IntoMessage<'x> for MessageBuilder<'y> {
+impl<'x> IntoMessage<'x> for MessageBuilder<'_> {
     fn into_message(self) -> crate::Result<Message<'x>> {
         let mut mail_from = None;
         let mut rcpt_to = std::collections::HashSet::new();
@@ -298,35 +336,34 @@ impl<'x, 'y> IntoMessage<'x> for MessageBuilder<'y> {
                         mail_from = email.to_string().into();
                     }
                 }
-            } else if key.eq_ignore_ascii_case("to")
+            } else if (key.eq_ignore_ascii_case("to")
                 || key.eq_ignore_ascii_case("cc")
-                || key.eq_ignore_ascii_case("bcc")
+                || key.eq_ignore_ascii_case("bcc"))
+                && let HeaderType::Address(addr) = value
             {
-                if let HeaderType::Address(addr) = value {
-                    match addr {
-                        address::Address::Address(addr) => {
-                            let email = addr.email.trim();
-                            if !email.is_empty() {
-                                rcpt_to.insert(email.to_string());
-                            }
+                match addr {
+                    address::Address::Address(addr) => {
+                        let email = addr.email.trim();
+                        if !email.is_empty() {
+                            rcpt_to.insert(email.to_string());
                         }
-                        address::Address::Group(group) => {
-                            for addr in &group.addresses {
-                                if let address::Address::Address(addr) = addr {
-                                    let email = addr.email.trim();
-                                    if !email.is_empty() {
-                                        rcpt_to.insert(email.to_string());
-                                    }
+                    }
+                    address::Address::Group(group) => {
+                        for addr in &group.addresses {
+                            if let address::Address::Address(addr) = addr {
+                                let email = addr.email.trim();
+                                if !email.is_empty() {
+                                    rcpt_to.insert(email.to_string());
                                 }
                             }
                         }
-                        address::Address::List(list) => {
-                            for addr in list {
-                                if let address::Address::Address(addr) = addr {
-                                    let email = addr.email.trim();
-                                    if !email.is_empty() {
-                                        rcpt_to.insert(email.to_string());
-                                    }
+                    }
+                    address::Address::List(list) => {
+                        for addr in list {
+                            if let address::Address::Address(addr) = addr {
+                                let email = addr.email.trim();
+                                if !email.is_empty() {
+                                    rcpt_to.insert(email.to_string());
                                 }
                             }
                         }
@@ -349,6 +386,71 @@ impl<'x, 'y> IntoMessage<'x> for MessageBuilder<'y> {
                 })
                 .collect(),
             body: self.write_to_vec()?.into(),
+        })
+    }
+}
+
+#[cfg(feature = "parser")]
+impl<'x> IntoMessage<'x> for mail_parser::Message<'x> {
+    fn into_message(self) -> crate::Result<Message<'x>> {
+        let mut mail_from = None;
+        let mut rcpt_to = std::collections::HashSet::new();
+
+        let find_address = |addr: &mail_parser::Addr| -> Option<String> {
+            addr.address
+                .as_ref()
+                .filter(|address| !address.trim().is_empty())
+                .map(|address| address.trim().to_string())
+        };
+
+        for header in self.headers() {
+            match &header.name {
+                HeaderName::From => match header.value() {
+                    HeaderValue::Address(mail_parser::Address::List(addrs)) => {
+                        if let Some(email) = addrs.iter().find_map(find_address) {
+                            mail_from = email.to_string().into();
+                        }
+                    }
+                    HeaderValue::Address(mail_parser::Address::Group(groups)) => {
+                        if let Some(grps) = groups.first() {
+                            if let Some(email) = grps.addresses.iter().find_map(find_address) {
+                                mail_from = email.to_string().into();
+                            }
+                        }
+                    }
+                    _ => (),
+                },
+                HeaderName::To | HeaderName::Cc | HeaderName::Bcc => match header.value() {
+                    HeaderValue::Address(mail_parser::Address::List(addrs)) => {
+                        rcpt_to.extend(addrs.iter().filter_map(find_address));
+                    }
+                    HeaderValue::Address(mail_parser::Address::Group(grps)) => {
+                        rcpt_to.extend(
+                            grps.iter()
+                                .flat_map(|grp| grp.addresses.iter())
+                                .filter_map(find_address),
+                        );
+                    }
+                    _ => (),
+                },
+                _ => (),
+            };
+        }
+
+        if rcpt_to.is_empty() {
+            return Err(crate::Error::MissingRcptTo);
+        }
+
+        Ok(Message {
+            mail_from: mail_from.ok_or(crate::Error::MissingMailFrom)?.into(),
+            rcpt_to: rcpt_to
+                .into_iter()
+                .map(|email| Address {
+                    email: email.into(),
+                    parameters: Parameters::default(),
+                })
+                .collect(),
+            body: self.raw_message,
         })
     }
 }
