@@ -59,12 +59,13 @@ Sign a message with DKIM and send it via an SMTP relay server:
     use mail_send::{
         SmtpClientBuilder,
         mail_auth::{
-            common::crypto::{RsaKey, Sha256},
+            crypto::{RsaKey, Sha256},
             dkim::DkimSigner,
         },
         mail_builder::MessageBuilder,
     };
     use rustls_pki_types::{PrivateKeyDer, pem::PemObject};
+    use std::time::Duration;
 
     // Build a simple text message with a single attachment
     let message = MessageBuilder::new()
@@ -82,7 +83,7 @@ Sign a message with DKIM and send it via an SMTP relay server:
         .domain("example.com")
         .selector("default")
         .headers(["From", "To", "Subject"])
-        .expiration(60 * 60 * 7); // Number of seconds before this signature expires (optional)
+        .expiration(Duration::from_secs(60 * 60 * 7)); // Signature lifetime (optional)
 
     // Connect to an SMTP relay server over TLS.
     // Signs each message with the configured DKIM signer.
@@ -102,7 +103,7 @@ Sign a message with DKIM2 and send it via an SMTP relay server:
     use mail_send::{
         SmtpClientBuilder,
         mail_auth::{
-            common::crypto::{RsaKey, Sha256},
+            crypto::{RsaKey, Sha256},
             dkim2::Dkim2Signer,
         },
         mail_builder::MessageBuilder,

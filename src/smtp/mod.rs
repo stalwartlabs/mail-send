@@ -23,6 +23,7 @@ impl From<auth::Error> for crate::Error {
 pub trait AssertReply: Sized {
     fn is_positive_completion(&self) -> bool;
     fn assert_positive_completion(self) -> crate::Result<()>;
+    fn into_positive_completion(self) -> crate::Result<Self>;
     fn assert_severity(self, severity: Severity) -> crate::Result<()>;
     fn assert_code(self, code: u16) -> crate::Result<()>;
 }
@@ -47,8 +48,14 @@ impl AssertReply for Response<String> {
     /// Returns Ok if the reply returned a 2xx code.
     #[inline(always)]
     fn assert_positive_completion(self) -> crate::Result<()> {
-        if (200..=299).contains(&self.code) {
-            Ok(())
+        self.into_positive_completion().map(|_| ())
+    }
+
+    /// Returns the reply if it returned a 2xx code.
+    #[inline(always)]
+    fn into_positive_completion(self) -> crate::Result<Self> {
+        if self.is_positive_completion() {
+            Ok(self)
         } else {
             Err(crate::Error::UnexpectedReply(self))
         }

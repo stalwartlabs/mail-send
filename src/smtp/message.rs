@@ -14,8 +14,7 @@ use mail_builder::{
     MessageBuilder,
     headers::{HeaderType, address},
 };
-#[cfg(feature = "parser")]
-use mail_parser::{HeaderName, HeaderValue};
+use smtp_proto::Response;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 use crate::SmtpClient;
@@ -46,7 +45,10 @@ pub struct Parameter<'x> {
 
 impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     /// Sends a message to the server.
-    pub async fn send<'x>(&mut self, message: impl IntoMessage<'x>) -> crate::Result<()> {
+    pub async fn send<'x>(
+        &mut self,
+        message: impl IntoMessage<'x>,
+    ) -> crate::Result<Response<String>> {
         // Send mail-from
         let message = message.into_message()?;
         self.mail_from(
@@ -66,14 +68,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
 
     /// Sends a message to the server.
     #[cfg(feature = "dkim")]
-    pub async fn send_signed<'x, V: mail_auth::common::crypto::SigningKey>(
+    pub async fn send_signed<'x, V: mail_auth::crypto::SigningKey>(
         &mut self,
         message: impl IntoMessage<'x>,
-        signer: &mail_auth::dkim::DkimSigner<V, mail_auth::dkim::Done>,
-    ) -> crate::Result<()> {
-        // Send mail-from
+        signer: &mail_auth::dkim::DkimSigner<V, mail_auth::signer::Ready>,
+    ) -> crate::Result<Response<String>> {
+        use mail_auth::headers::HeaderWriter;
 
-        use mail_auth::common::headers::HeaderWriter;
+        // Send mail-from
         let message = message.into_message()?;
         self.mail_from(
             message.mail_from.email.as_ref(),
@@ -103,9 +105,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     pub async fn send_signed_dkim2<'x>(
         &mut self,
         message: impl IntoMessage<'x>,
-        signer: &mail_auth::dkim2::Dkim2Signer<mail_auth::dkim2::Done>,
-    ) -> crate::Result<()> {
-        use mail_auth::common::headers::HeaderWriter;
+        signer: &mail_auth::dkim2::Dkim2Signer<mail_auth::signer::Ready>,
+    ) -> crate::Result<Response<String>> {
         use mail_auth::dkim2::Hop;
 
         // Send mail-from
@@ -129,13 +130,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
                     message.mail_from.email.as_ref(),
                     message.rcpt_to.iter().map(|rcpt| rcpt.email.as_ref()),
                 ),
+                None,
             )
             .map_err(|_| crate::Error::MissingCredentials)?;
         let mut signed_message = Vec::with_capacity(message.body.len() + 64);
-        signed.signature.write_header(&mut signed_message);
-        if let Some(instance) = &signed.message_instance {
-            instance.write_header(&mut signed_message);
-        }
+        signed.write(&mut signed_message);
         signed_message.extend_from_slice(message.body.as_ref());
 
         // Send message
@@ -391,66 +390,71 @@ impl<'x> IntoMessage<'x> for MessageBuilder<'_> {
 }
 
 #[cfg(feature = "parser")]
-impl<'x> IntoMessage<'x> for mail_parser::Message<'x> {
+impl<'x> IntoMessage<'x> for &'x mail_parser::Message<'_> {
     fn into_message(self) -> crate::Result<Message<'x>> {
-        let mut mail_from = None;
-        let mut rcpt_to = std::collections::HashSet::new();
-
-        let find_address = |addr: &mail_parser::Addr| -> Option<String> {
-            addr.address
-                .as_ref()
-                .filter(|address| !address.trim().is_empty())
-                .map(|address| address.trim().to_string())
+        let root = self.root();
+        let non_empty = |mailbox: mail_parser::Mailbox<'x>| {
+            mailbox
+                .address()
+                .map(str::trim)
+                .filter(|address| !address.is_empty())
         };
 
-        for header in self.headers() {
-            match &header.name {
-                HeaderName::From => match header.value() {
-                    HeaderValue::Address(mail_parser::Address::List(addrs)) => {
-                        if let Some(email) = addrs.iter().find_map(find_address) {
-                            mail_from = email.to_string().into();
-                        }
-                    }
-                    HeaderValue::Address(mail_parser::Address::Group(groups)) => {
-                        if let Some(grps) = groups.first() {
-                            if let Some(email) = grps.addresses.iter().find_map(find_address) {
-                                mail_from = email.to_string().into();
-                            }
-                        }
-                    }
-                    _ => (),
-                },
-                HeaderName::To | HeaderName::Cc | HeaderName::Bcc => match header.value() {
-                    HeaderValue::Address(mail_parser::Address::List(addrs)) => {
-                        rcpt_to.extend(addrs.iter().filter_map(find_address));
-                    }
-                    HeaderValue::Address(mail_parser::Address::Group(grps)) => {
-                        rcpt_to.extend(
-                            grps.iter()
-                                .flat_map(|grp| grp.addresses.iter())
-                                .filter_map(find_address),
-                        );
-                    }
-                    _ => (),
-                },
-                _ => (),
-            };
-        }
+        let mail_from = root
+            .from()
+            .and_then(|from| from.mailboxes().find_map(non_empty))
+            .ok_or(crate::Error::MissingMailFrom)?;
+
+        let mut seen = std::collections::HashSet::new();
+        let rcpt_to: Vec<Address<'x>> = root
+            .all_to()
+            .chain(root.all_cc())
+            .chain(root.all_bcc())
+            .flat_map(|list| list.mailboxes().filter_map(non_empty))
+            .filter(|email| seen.insert(*email))
+            .map(Address::from)
+            .collect();
 
         if rcpt_to.is_empty() {
             return Err(crate::Error::MissingRcptTo);
         }
 
         Ok(Message {
-            mail_from: mail_from.ok_or(crate::Error::MissingMailFrom)?.into(),
-            rcpt_to: rcpt_to
-                .into_iter()
-                .map(|email| Address {
-                    email: email.into(),
-                    parameters: Parameters::default(),
-                })
-                .collect(),
-            body: self.raw_message,
+            mail_from: mail_from.into(),
+            rcpt_to,
+            body: Cow::Borrowed(self.raw()),
         })
+    }
+}
+
+#[cfg(all(test, feature = "parser"))]
+mod test {
+    use mail_parser::MessageParser;
+
+    use super::IntoMessage;
+
+    // Parsed messages yield a borrowed envelope with deduplicated recipients, groups flattened.
+    #[test]
+    fn parsed_message_envelope() {
+        let raw = concat!(
+            "From: \"Joe\" <joe@example.com>\r\n",
+            "To: jane@example.org, Team: ann@example.org, jane@example.org;\r\n",
+            "Cc: <bob@example.net>\r\n",
+            "Bcc: ann@example.org\r\n",
+            "Subject: hi\r\n\r\nbody\r\n"
+        );
+        let parsed = MessageParser::new().parse(raw).unwrap();
+        let message = (&parsed).into_message().unwrap();
+
+        assert_eq!(message.mail_from.email, "joe@example.com");
+        assert_eq!(
+            message
+                .rcpt_to
+                .iter()
+                .map(|rcpt| rcpt.email.as_ref())
+                .collect::<Vec<_>>(),
+            ["jane@example.org", "ann@example.org", "bob@example.net"]
+        );
+        assert_eq!(message.body.as_ref(), raw.as_bytes());
     }
 }
