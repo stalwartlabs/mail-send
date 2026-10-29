@@ -1,26 +1,20 @@
 /*
- * Copyright Stalwart Labs Ltd.
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
- * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
- * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
- * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
- * option. This file may not be copied, modified, or distributed
- * except according to those terms.
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
-use std::{convert::TryFrom, io, sync::Arc};
-
-use rustls::{
-    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
-    ClientConfig, ClientConnection, RootCertStore, SignatureScheme,
-};
-use rustls_pki_types::{ServerName, TrustAnchor};
-use tokio::net::TcpStream;
-use tokio_rustls::{client::TlsStream, TlsConnector};
-
-use crate::{Error, SmtpClient};
-
 use super::AssertReply;
+use crate::{Error, SmtpClient};
+use rustls::{
+    ClientConfig, ClientConnection, SignatureScheme,
+    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+};
+use rustls_pki_types::ServerName;
+use rustls_platform_verifier::BuilderVerifierExt;
+use std::{convert::TryFrom, io, sync::Arc};
+use tokio::net::TcpStream;
+use tokio_rustls::{TlsConnector, client::TlsStream};
 
 impl SmtpClient<TcpStream> {
     /// Upgrade the connection to TLS.
@@ -77,25 +71,20 @@ impl SmtpClient<TlsStream<TcpStream>> {
     }
 }
 
-pub fn build_tls_config(allow_invalid_certs: bool) -> ClientConfig {
-    if !allow_invalid_certs {
-        let mut root_cert_store = RootCertStore::empty();
-
-        root_cert_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| TrustAnchor {
-            subject: ta.subject.clone(),
-            subject_public_key_info: ta.subject_public_key_info.clone(),
-            name_constraints: ta.name_constraints.clone(),
-        }));
-
+pub fn build_tls_connector(allow_invalid_certs: bool) -> Result<TlsConnector, String> {
+    let config = if !allow_invalid_certs {
         ClientConfig::builder()
-            .with_root_certificates(root_cert_store)
-            .with_no_client_auth()
+            .with_platform_verifier()
+            .map(|config| config.with_no_client_auth())
+            .map_err(|err| format!("Failed to build platform verifier: {err}"))?
     } else {
         ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(DummyVerifier {}))
             .with_no_client_auth()
-    }
+    };
+
+    Ok(TlsConnector::from(Arc::new(config)))
 }
 
 #[doc(hidden)]

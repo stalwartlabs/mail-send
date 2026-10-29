@@ -1,37 +1,41 @@
 /*
- * Copyright Stalwart Labs Ltd.
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
- * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
- * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
- * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
- * option. This file may not be copied, modified, or distributed
- * except according to those terms.
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
-use rustls::ClientConfig;
-use smtp_proto::{EhloResponse, EXT_START_TLS};
+use super::{AssertReply, tls::build_tls_connector};
+use crate::{Credentials, SmtpClient, SmtpClientBuilder};
+use smtp_proto::{EXT_START_TLS, EhloResponse};
+use std::hash::Hash;
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
-use std::{hash::Hash, sync::Arc};
+use tokio::net::TcpSocket;
 use tokio::{
+    io,
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
-use tokio_rustls::{client::TlsStream, TlsConnector};
-
-use crate::{Credentials, SmtpClient, SmtpClientBuilder};
-
-use super::{tls::build_tls_config, AssertReply};
+use tokio_rustls::{TlsConnector, client::TlsStream};
 
 impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
-    pub fn new(hostname: T, port: u16) -> Self {
-        Self::new_with_tls_config(hostname, port, build_tls_config(false))
+    pub fn new(hostname: T, port: u16) -> Result<Self, String> {
+        Ok(Self::new_with_tls_connector(
+            hostname,
+            port,
+            build_tls_connector(false)?,
+        ))
     }
 
-    pub fn new_with_tls_config(hostname: T, port: u16, cfg: impl Into<Arc<ClientConfig>>) -> Self {
+    /// Creates a builder that uses the provided TLS connector.
+    ///
+    /// Unlike [`SmtpClientBuilder::new`], this does not build the default rustls
+    /// configuration, so it does not require a process-level `CryptoProvider`.
+    pub fn new_with_tls_connector(hostname: T, port: u16, tls_connector: TlsConnector) -> Self {
         SmtpClientBuilder {
             addr: format!("{}:{}", hostname.as_ref(), port),
             timeout: Duration::from_secs(60 * 60),
-            tls_connector: TlsConnector::from(cfg.into()),
+            tls_connector,
             tls_hostname: hostname,
             tls_implicit: true,
             is_lmtp: false,
@@ -41,12 +45,13 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
                 .to_string(),
             credentials: None,
             say_ehlo: true,
+            local_ip: None,
         }
     }
 
     /// Allow invalid TLS certificates
     pub fn allow_invalid_certs(mut self) -> Self {
-        self.tls_connector = TlsConnector::from(Arc::new(build_tls_config(true)));
+        self.tls_connector = build_tls_connector(true).unwrap();
         self
     }
 
@@ -86,11 +91,53 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
         self
     }
 
+    /// Sets the local IP to use while sending the email.
+    ///
+    /// This is useful if your machine has multiple public IPs assigned and you want to ensure
+    /// that you are using the intended one. Using an IP with good repudiation is quite important
+    /// when you want to ensure deliverability.
+    ///
+    /// *NOTE:* If the IP is not available on that machine, the [`connect`] and [`connect_plain`] will return and error
+    pub fn local_ip(mut self, local_ip: IpAddr) -> Self {
+        self.local_ip = Some(local_ip);
+        self
+    }
+
+    async fn tcp_stream(&self) -> io::Result<TcpStream> {
+        if let Some(local_addr) = self.local_ip {
+            let remote_addrs = self.addr.to_socket_addrs()?;
+            let mut last_err = None;
+
+            for addr in remote_addrs {
+                let local_addr = SocketAddr::new(local_addr, 0);
+                let socket = match local_addr.ip() {
+                    IpAddr::V4(_) => TcpSocket::new_v4()?,
+                    IpAddr::V6(_) => TcpSocket::new_v6()?,
+                };
+                socket.bind(local_addr)?;
+
+                match socket.connect(addr).await {
+                    Ok(stream) => return Ok(stream),
+                    Err(e) => last_err = Some(e),
+                }
+            }
+
+            Err(last_err.unwrap_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "could not resolve to any address",
+                )
+            }))
+        } else {
+            TcpStream::connect(&self.addr).await
+        }
+    }
+
     /// Connect over TLS
     pub async fn connect(&self) -> crate::Result<SmtpClient<TlsStream<TcpStream>>> {
         tokio::time::timeout(self.timeout, async {
             let mut client = SmtpClient {
-                stream: TcpStream::connect(&self.addr).await?,
+                stream: self.tcp_stream().await?,
                 timeout: self.timeout,
             };
 
@@ -138,11 +185,9 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     /// Connect over clear text (should not be used)
     pub async fn connect_plain(&self) -> crate::Result<SmtpClient<TcpStream>> {
         let mut client = SmtpClient {
-            stream: tokio::time::timeout(self.timeout, async {
-                TcpStream::connect(&self.addr).await
-            })
-            .await
-            .map_err(|_| crate::Error::Timeout)??,
+            stream: tokio::time::timeout(self.timeout, async { self.tcp_stream().await })
+                .await
+                .map_err(|_| crate::Error::Timeout)??,
             timeout: self.timeout,
         };
 
@@ -173,5 +218,36 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         } else {
             self.lhlo(local_host).await
         }
+    }
+}
+
+#[cfg(all(test, feature = "aws_lc_rs"))]
+mod test {
+    use std::sync::Arc;
+
+    use rustls::{ClientConfig, RootCertStore, crypto::aws_lc_rs};
+    use tokio_rustls::TlsConnector;
+
+    use crate::SmtpClientBuilder;
+
+    // Builder accepts a caller-provided connector without touching the process-level CryptoProvider.
+    #[test]
+    fn new_with_tls_connector() {
+        let config = Arc::new(
+            ClientConfig::builder_with_provider(Arc::new(aws_lc_rs::default_provider()))
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(RootCertStore::empty())
+                .with_no_client_auth(),
+        );
+        let builder = SmtpClientBuilder::new_with_tls_connector(
+            "mail.example.com",
+            587,
+            TlsConnector::from(config.clone()),
+        );
+
+        assert_eq!(builder.addr, "mail.example.com:587");
+        assert_eq!(builder.tls_hostname, "mail.example.com");
+        assert!(Arc::ptr_eq(builder.tls_connector.config(), &config));
     }
 }

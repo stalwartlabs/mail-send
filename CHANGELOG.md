@@ -1,3 +1,37 @@
+mail-send 0.6.3
+================================
+- Add `SmtpClientBuilder::new_with_tls_connector` to use a custom TLS connector without a process-level `CryptoProvider` (#37).
+
+mail-send 0.6.2
+================================
+- Bump `mail-builder` dependency to 0.5.
+- Bump `mail-auth` dependency to 0.12.
+
+mail-send 0.6.1
+================================
+- DKIM2 support.
+- Bump `mail-auth` dependency to 0.11
+
+mail-send 0.6.0
+================================
+- Use `rustls-platform-verifier` for TLS certificate verification.
+
+mail-send 0.5.2
+================================
+- Add an option to choose the sending IP (#41)
+
+mail-send 0.5.1
+================================
+- Bump `mail-parser` dependency to 0.11
+- Bump `mail-auth` dependency to 0.7
+- Bump `webpki-roots` dependency to 1.0
+
+mail-send 0.5.0
+================================
+- Bump `mail-parser` dependency to 0.10
+- Bump `mail-builder` dependency to 0.4
+- Bump `mail-auth` dependency to 0.6
+
 mail-send 0.4.9
 ================================
 - Bump `rustls` dependency to 0.23

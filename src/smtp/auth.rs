@@ -1,19 +1,15 @@
 /*
- * Copyright Stalwart Labs Ltd.
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
- * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
- * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
- * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
- * option. This file may not be copied, modified, or distributed
- * except according to those terms.
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
-use std::{fmt::Display, hash::Hash};
+use std::{borrow::Cow, fmt::Display, hash::Hash};
 
-use base64::{engine, Engine};
+use encodify::base64;
 use smtp_proto::{
-    response::generate::BitToString, EhloResponse, AUTH_CRAM_MD5, AUTH_DIGEST_MD5, AUTH_LOGIN,
-    AUTH_OAUTHBEARER, AUTH_PLAIN, AUTH_XOAUTH2,
+    AUTH_CRAM_MD5, AUTH_DIGEST_MD5, AUTH_LOGIN, AUTH_OAUTHBEARER, AUTH_PLAIN, AUTH_XOAUTH2,
+    EhloResponse, response::generate::BitToString,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -74,15 +70,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         U: AsRef<str> + PartialEq + Eq + Hash,
     {
         let mut reply = if (mechanism & (AUTH_PLAIN | AUTH_XOAUTH2 | AUTH_OAUTHBEARER)) != 0 {
-            self.cmd(
-                format!(
-                    "AUTH {} {}\r\n",
-                    mechanism.to_mechanism(),
-                    credentials.encode(mechanism, "")?,
-                )
-                .as_bytes(),
-            )
-            .await?
+            let mut command = format!("AUTH {} ", mechanism.to_mechanism());
+            credentials.encode_append(mechanism, "", &mut command)?;
+            command.push_str("\r\n");
+            self.cmd(command.as_bytes()).await?
         } else {
             self.cmd(format!("AUTH {}\r\n", mechanism.to_mechanism()).as_bytes())
                 .await?
@@ -91,12 +82,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         for _ in 0..3 {
             match reply.code() {
                 334 => {
-                    reply = self
-                        .cmd(
-                            format!("{}\r\n", credentials.encode(mechanism, reply.message())?)
-                                .as_bytes(),
-                        )
-                        .await?;
+                    let mut response = String::new();
+                    credentials.encode_append(mechanism, reply.message(), &mut response)?;
+                    response.push_str("\r\n");
+                    reply = self.cmd(response.as_bytes()).await?;
                 }
                 235 => {
                     return Ok(());
@@ -140,14 +129,27 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
     }
 
     pub fn encode(&self, mechanism: u64, challenge: &str) -> crate::Result<String> {
-        Ok(engine::general_purpose::STANDARD.encode(
+        let mut response = String::new();
+        self.encode_append(mechanism, challenge, &mut response)?;
+        Ok(response)
+    }
+
+    pub(crate) fn encode_append(
+        &self,
+        mechanism: u64,
+        challenge: &str,
+        out: &mut String,
+    ) -> crate::Result<()> {
+        base64::STANDARD.encode_append(
             match (mechanism, self) {
-                (AUTH_PLAIN, Credentials::Plain { username, secret }) => {
-                    format!("\u{0}{}\u{0}{}", username.as_ref(), secret.as_ref())
-                }
+                (AUTH_PLAIN, Credentials::Plain { username, secret }) => Cow::Owned(format!(
+                    "\u{0}{}\u{0}{}",
+                    username.as_ref(),
+                    secret.as_ref()
+                )),
 
                 (AUTH_LOGIN, Credentials::Plain { username, secret }) => {
-                    let challenge = engine::general_purpose::STANDARD.decode(challenge)?;
+                    let challenge = base64::STANDARD.decode(challenge)?;
                     let username = username.as_ref();
                     let secret = secret.as_ref();
 
@@ -158,15 +160,14 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                             challenge.get(0..8).ok_or(Error::InvalidChallenge)?,
                         )
                     {
-                        &username
+                        Cow::Borrowed(username)
                     } else if b"password"
                         .eq_ignore_ascii_case(challenge.get(0..8).ok_or(Error::InvalidChallenge)?)
                     {
-                        &secret
+                        Cow::Borrowed(secret)
                     } else {
                         return Err(Error::InvalidChallenge.into());
                     }
-                    .to_string()
                 }
 
                 #[cfg(feature = "digest-md5")]
@@ -175,7 +176,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                     let mut key = None;
                     let mut in_quote = false;
                     let mut values = std::collections::HashMap::new();
-                    let challenge = engine::general_purpose::STANDARD.decode(challenge)?;
+                    let challenge = base64::STANDARD.decode(challenge)?;
                     let challenge_len = challenge.len();
                     let username = username.as_ref();
                     let secret = secret.as_ref();
@@ -227,7 +228,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                         md5::compute(format!("{username}:{realm}:{secret}").as_bytes());
 
                     let a2 = md5::compute(
-                        if values.get("qpop").map_or(false, |v| v == "auth") {
+                        if values.get("qpop").is_some_and(|v| v == "auth") {
                             format!("AUTHENTICATE:{digest_uri}")
                         } else {
                             format!("AUTHENTICATE:{digest_uri}:00000000000000000000000000000000")
@@ -235,13 +236,14 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                         .as_bytes(),
                     );
 
-                    #[allow(unused_variables)]
-                    let cnonce = {
+                    let cnonce_bytes = {
                         use rand::RngCore;
                         let mut buf = [0u8; 16];
-                        rand::thread_rng().fill_bytes(&mut buf);
-                        engine::general_purpose::STANDARD.encode(buf)
+                        rand::rng().fill_bytes(&mut buf);
+                        buf
                     };
+                    #[allow(unused_variables)]
+                    let cnonce = base64::STANDARD.display(&cnonce_bytes);
 
                     #[cfg(test)]
                     let cnonce = "OA6MHXh6VqTrRk".to_string();
@@ -251,7 +253,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                         .remove("charset")
                         .unwrap_or_else(|| "utf-8".to_string());
 
-                    format!(
+                    Cow::Owned(format!(
                         concat!(
                             "charset={},username=\"{}\",realm=\"{}\",nonce=\"{}\",nc=00000001,",
                             "cnonce=\"{}\",digest-uri=\"{}\",response={:x},qop={}"
@@ -267,7 +269,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                                 .as_bytes()
                         ),
                         qop
-                    )
+                    ))
                 }
 
                 #[cfg(feature = "cram-md5")]
@@ -289,25 +291,26 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> Credentials<T> {
                         }
                     }
 
-                    secret_ipad
-                        .extend_from_slice(&engine::general_purpose::STANDARD.decode(challenge)?);
+                    base64::STANDARD.decode_append(challenge, &mut secret_ipad)?;
                     secret_opad.extend_from_slice(&md5::compute(&secret_ipad).0);
 
-                    format!("{} {:x}", username, md5::compute(&secret_opad))
+                    Cow::Owned(format!("{} {:x}", username, md5::compute(&secret_opad)))
                 }
 
-                (AUTH_XOAUTH2, Credentials::XOauth2 { username, secret }) => format!(
+                (AUTH_XOAUTH2, Credentials::XOauth2 { username, secret }) => Cow::Owned(format!(
                     "user={}\x01auth=Bearer {}\x01\x01",
                     username.as_ref(),
                     secret.as_ref()
-                ),
+                )),
                 (AUTH_OAUTHBEARER, Credentials::OAuthBearer { token }) => {
-                    token.as_ref().to_string()
+                    Cow::Borrowed(token.as_ref())
                 }
                 _ => return Err(crate::Error::UnsupportedAuthMechanism),
             }
             .as_bytes(),
-        ))
+            out,
+        );
+        Ok(())
     }
 }
 

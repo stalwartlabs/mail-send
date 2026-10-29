@@ -1,18 +1,12 @@
 /*
- * Copyright Stalwart Labs Ltd.
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
- * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
- * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
- * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
- * option. This file may not be copied, modified, or distributed
- * except according to those terms.
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-
+use super::{AssertReply, message::Parameters};
 use crate::SmtpClient;
-
-use super::{message::Parameters, AssertReply};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
 impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
     /// Sends a MAIL FROM command to the server.
