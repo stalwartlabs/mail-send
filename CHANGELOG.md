@@ -1,3 +1,7 @@
+mail-send 0.6.3
+================================
+- Add `SmtpClientBuilder::new_with_tls_connector` to use a custom TLS connector without a process-level `CryptoProvider` (#37).
+
 mail-send 0.6.2
 ================================
 - Bump `mail-builder` dependency to 0.5.

@@ -16,14 +16,26 @@ use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
 };
-use tokio_rustls::client::TlsStream;
+use tokio_rustls::{TlsConnector, client::TlsStream};
 
 impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
     pub fn new(hostname: T, port: u16) -> Result<Self, String> {
-        Ok(SmtpClientBuilder {
+        Ok(Self::new_with_tls_connector(
+            hostname,
+            port,
+            build_tls_connector(false)?,
+        ))
+    }
+
+    /// Creates a builder that uses the provided TLS connector.
+    ///
+    /// Unlike [`SmtpClientBuilder::new`], this does not build the default rustls
+    /// configuration, so it does not require a process-level `CryptoProvider`.
+    pub fn new_with_tls_connector(hostname: T, port: u16, tls_connector: TlsConnector) -> Self {
+        SmtpClientBuilder {
             addr: format!("{}:{}", hostname.as_ref(), port),
             timeout: Duration::from_secs(60 * 60),
-            tls_connector: build_tls_connector(false)?,
+            tls_connector,
             tls_hostname: hostname,
             tls_implicit: true,
             is_lmtp: false,
@@ -34,7 +46,7 @@ impl<T: AsRef<str> + PartialEq + Eq + Hash> SmtpClientBuilder<T> {
             credentials: None,
             say_ehlo: true,
             local_ip: None,
-        })
+        }
     }
 
     /// Allow invalid TLS certificates
@@ -206,5 +218,36 @@ impl<T: AsyncRead + AsyncWrite + Unpin> SmtpClient<T> {
         } else {
             self.lhlo(local_host).await
         }
+    }
+}
+
+#[cfg(all(test, feature = "aws_lc_rs"))]
+mod test {
+    use std::sync::Arc;
+
+    use rustls::{ClientConfig, RootCertStore, crypto::aws_lc_rs};
+    use tokio_rustls::TlsConnector;
+
+    use crate::SmtpClientBuilder;
+
+    // Builder accepts a caller-provided connector without touching the process-level CryptoProvider.
+    #[test]
+    fn new_with_tls_connector() {
+        let config = Arc::new(
+            ClientConfig::builder_with_provider(Arc::new(aws_lc_rs::default_provider()))
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(RootCertStore::empty())
+                .with_no_client_auth(),
+        );
+        let builder = SmtpClientBuilder::new_with_tls_connector(
+            "mail.example.com",
+            587,
+            TlsConnector::from(config.clone()),
+        );
+
+        assert_eq!(builder.addr, "mail.example.com:587");
+        assert_eq!(builder.tls_hostname, "mail.example.com");
+        assert!(Arc::ptr_eq(builder.tls_connector.config(), &config));
     }
 }
