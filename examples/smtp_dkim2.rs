@@ -5,7 +5,7 @@
  */
 
 use mail_auth::{
-    common::crypto::{RsaKey, Sha256},
+    crypto::{RsaKey, Sha256},
     dkim2::Dkim2Signer,
 };
 use mail_builder::MessageBuilder;

@@ -5,12 +5,13 @@
  */
 
 use mail_auth::{
-    common::crypto::{RsaKey, Sha256},
+    crypto::{RsaKey, Sha256},
     dkim::DkimSigner,
 };
 use mail_builder::MessageBuilder;
 use mail_send::SmtpClientBuilder;
 use rustls_pki_types::{PrivateKeyDer, pem::PemObject};
+use std::time::Duration;
 
 const TEST_KEY: &str = r#"-----BEGIN RSA PRIVATE KEY-----
 MIICXwIBAAKBgQDwIRP/UC3SBsEmGqZ9ZJW3/DkMoGeLnQg1fWn7/zYtIxN2SnFC
@@ -48,7 +49,7 @@ async fn main() {
         .domain("example.com")
         .selector("default")
         .headers(["From", "To", "Subject"])
-        .expiration(60 * 60 * 7); // Number of seconds before this signature expires (optional)
+        .expiration(Duration::from_secs(60 * 60 * 7)); // Signature lifetime (optional)
 
     // Connect to an SMTP relay server over TLS.
     // Signs each message with the configured DKIM signer.
