@@ -1,11 +1,7 @@
 /*
- * Copyright Stalwart Labs Ltd.
+ * SPDX-FileCopyrightText: 2020 Stalwart Labs LLC <hello@stalw.art>
  *
- * Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
- * https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
- * <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
- * option. This file may not be copied, modified, or distributed
- * except according to those terms.
+ * SPDX-License-Identifier: Apache-2.0 OR MIT
  */
 
 use smtp_proto::{Response, Severity};
@@ -27,6 +23,7 @@ impl From<auth::Error> for crate::Error {
 pub trait AssertReply: Sized {
     fn is_positive_completion(&self) -> bool;
     fn assert_positive_completion(self) -> crate::Result<()>;
+    fn into_positive_completion(self) -> crate::Result<Self>;
     fn assert_severity(self, severity: Severity) -> crate::Result<()>;
     fn assert_code(self, code: u16) -> crate::Result<()>;
 }
@@ -51,8 +48,14 @@ impl AssertReply for Response<String> {
     /// Returns Ok if the reply returned a 2xx code.
     #[inline(always)]
     fn assert_positive_completion(self) -> crate::Result<()> {
-        if (200..=299).contains(&self.code) {
-            Ok(())
+        self.into_positive_completion().map(|_| ())
+    }
+
+    /// Returns the reply if it returned a 2xx code.
+    #[inline(always)]
+    fn into_positive_completion(self) -> crate::Result<Self> {
+        if self.is_positive_completion() {
+            Ok(self)
         } else {
             Err(crate::Error::UnexpectedReply(self))
         }
